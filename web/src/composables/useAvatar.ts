@@ -47,6 +47,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
       const avatarView = new AvatarView(avatar, containerRef.value);
 
       avatarView.controller.onConnectionState = (state: ConnectionState) => {
+        console.log("[useAvatar] connectionState changed:", state);
         connectionState.value = state;
         if (state === "connected") ready.value = true;
       };
@@ -54,6 +55,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
         conversationState.value = state;
       };
       avatarView.controller.onError = (err: Error) => {
+        console.error("[useAvatar] SDK error:", err.message, err);
         error.value = err.message;
       };
 
@@ -82,8 +84,14 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
       return;
     }
 
+    console.log("[useAvatar] Starting WebSocket connection...");
+    console.log("[useAvatar] Current origin:", window.location.origin);
+    console.log("[useAvatar] SDK environment config:", (AvatarSDK as any).getEnvironmentConfig?.());
+
     // Start the WebSocket connection
     await controller.value.start();
+
+    console.log("[useAvatar] controller.start() resolved, connectionState:", connectionState.value);
 
     // CRITICAL: Wait for connectionState to reach "connected" before returning.
     // controller.start() initiates the connection but does NOT wait for the
@@ -92,13 +100,15 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     if (connectionState.value !== ("connected" as ConnectionState)) {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error("Connection timeout: SDK did not reach 'connected' state within 10s"));
+          console.error("[useAvatar] Connection timeout! Final connectionState:", connectionState.value);
+          reject(new Error("Avatar connection failed. Please check your SpatialReal account credits and try again."));
         }, 10_000);
 
         // The onConnectionState callback is already set up in loadAvatar.
         // We wrap it to also detect when we reach "connected".
         const originalCallback = controller.value!.onConnectionState;
         controller.value!.onConnectionState = (state: ConnectionState) => {
+          console.log("[useAvatar] connectionState during wait:", state);
           // Forward to original handler (updates reactive refs)
           originalCallback?.(state);
 
