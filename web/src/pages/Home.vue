@@ -40,6 +40,8 @@ const selectedVoice = ref(VOICES[0].id);
 const selectedAvatar = ref(AVATARS[0].id);
 const charCount = computed(() => textInput.value.length);
 const maxChars = 500;
+const showAllAvatars = ref(false);
+const visibleAvatars = computed(() => showAllAvatars.value ? AVATARS : AVATARS.slice(0, 8));
 
 type Stage = "idle" | "loading" | "ready" | "tts" | "speaking" | "done" | "error";
 const stage = ref<Stage>("idle");
@@ -193,11 +195,19 @@ function scrollToTop() {
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Avatar</label>
+                <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Avatar ({{ AVATARS.length }})</label>
                 <div class="flex gap-1.5 flex-wrap">
-                  <button v-for="a in AVATARS" :key="a.id" @click="switchAvatar(a.id)"
+                  <button v-for="a in visibleAvatars" :key="a.id" @click="switchAvatar(a.id)"
                     :class="['px-2.5 py-1 rounded-lg text-xs font-medium transition-all', selectedAvatar === a.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']">
                     {{ a.name }}
+                  </button>
+                  <button v-if="!showAllAvatars" @click="showAllAvatars = true"
+                    class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-50 text-blue-600 hover:bg-blue-50 transition-all">
+                    +{{ AVATARS.length - 8 }} more
+                  </button>
+                  <button v-else @click="showAllAvatars = false"
+                    class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-50 text-gray-400 hover:bg-gray-100 transition-all">
+                    Show less
                   </button>
                 </div>
               </div>
@@ -381,11 +391,12 @@ function scrollToTop() {
             <h4 class="text-white font-semibold text-sm mb-3">Company</h4>
             <ul class="space-y-2 text-sm">
               <li><a href="https://spatialreal.ai" target="_blank" rel="noreferrer" class="hover:text-white">SpatialReal</a></li>
+              <li><a href="mailto:lihang@spatialwalk.net" class="hover:text-white">Contact Us</a></li>
             </ul>
           </div>
         </div>
         <div class="border-t border-gray-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
-          <span>Powered by <a href="https://spatialreal.ai" class="text-blue-400 hover:underline" target="_blank" rel="noreferrer">SpatialReal</a></span>
+          <span>Powered by <a href="https://spatialreal.ai" class="text-blue-400 hover:underline" target="_blank" rel="noreferrer">SpatialReal</a> · Contact: <a href="mailto:lihang@spatialwalk.net" class="text-blue-400 hover:underline">lihang@spatialwalk.net</a></span>
           <span>&copy; 2026 FreeVideo. All rights reserved.</span>
         </div>
       </div>
