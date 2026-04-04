@@ -85,26 +85,22 @@ async function generate() {
     const pcmData = new Int16Array(pcmBuffer);
     const durationSec = pcmData.length / 16000;
 
-    // 3. Start recording + send audio to SDK simultaneously
+    // 3. Record video + audio in sync (recorder also sends chunks to SDK)
     stage.value = "speaking";
     stageMsg.value = `Avatar speaking (${durationSec.toFixed(1)}s)...`;
-    progress.value = 0;
 
     const canvas = avatar.getCanvas();
     if (!canvas) throw new Error("Canvas not found");
 
-    // Start recording (captures canvas + audio, returns MP4 blob when done)
-    const recordPromise = recorder.startRecording(canvas, pcmData, 16000, 30, 720, 720);
-
-    // Send audio chunks to SDK for lip sync
-    await avatar.sendAudioChunks(pcmBuffer, (pct) => {
-      progress.value = pct;
-    });
-
-    // Wait for recording to finish
-    stage.value = "recording";
-    stageMsg.value = "Recording video...";
-    const blob = await recordPromise;
+    const blob = await recorder.startRecording(
+      canvas,
+      pcmData,
+      16000,
+      (chunk, isEnd) => avatar.sendAudio(chunk, isEnd),
+      30,
+      720,
+      720,
+    );
 
     stage.value = "done";
     stageMsg.value = `Video ready! (${(blob.size / 1024).toFixed(0)} KB)`;

@@ -72,6 +72,10 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     await controller.value.start();
   }
 
+  function sendAudio(data: ArrayBuffer, isEnd: boolean) {
+    controller.value?.send(data, isEnd);
+  }
+
   function sendAudioChunks(
     pcmBuffer: ArrayBuffer,
     onProgress?: (pct: number) => void,
@@ -127,6 +131,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     initialize,
     loadAvatar,
     startConnection,
+    sendAudio,
     sendAudioChunks,
     getCanvas,
     cleanup,

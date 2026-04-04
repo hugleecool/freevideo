@@ -20,11 +20,6 @@ export function useRecorder() {
     srcRate: number,
     dstRate: number,
   ): Float32Array {
-    if (srcRate === dstRate) {
-      const out = new Float32Array(pcm.length);
-      for (let i = 0; i < pcm.length; i++) out[i] = pcm[i] / 32768;
-      return out;
-    }
     const ratio = srcRate / dstRate;
     const outLen = Math.round(pcm.length / ratio);
     const out = new Float32Array(outLen);
@@ -38,17 +33,26 @@ export function useRecorder() {
     return out;
   }
 
+  /**
+   * Record canvas + audio in sync.
+   *
+   * Instead of encoding audio upfront, this function captures video frames
+   * AND feeds audio to the muxer in lockstep, both driven by the same
+   * wall-clock timer. This ensures the audio and video timestamps match
+   * what's actually shown on the canvas (avatar lip-sync).
+   *
+   * @param sendAudioToSDK - callback to send PCM chunks to avatar SDK for lip-sync
+   */
   async function startRecording(
     canvas: HTMLCanvasElement,
     audioPcm: Int16Array,
-    sampleRate = 16000,
+    sampleRate: number,
+    sendAudioToSDK: (chunk: ArrayBuffer, isEnd: boolean) => void,
     fps = 30,
     width = 720,
     height = 720,
   ): Promise<Blob> {
-    if (!supportsRecording()) {
-      throw new Error("WebCodecs not supported");
-    }
+    if (!supportsRecording()) throw new Error("WebCodecs not supported");
 
     recording.value = true;
     phase.value = "recording";
@@ -56,22 +60,22 @@ export function useRecorder() {
     const offscreen = new OffscreenCanvas(width, height);
     const offCtx = offscreen.getContext("2d")!;
 
+    // Resample audio for AAC encoding
+    const resampled = resampleToFloat32(audioPcm, sampleRate, OUTPUT_SAMPLE_RATE);
+    const audioDurSec = resampled.length / OUTPUT_SAMPLE_RATE;
+    const totalFrames = Math.ceil(audioDurSec * fps);
+
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
       target,
       video: { codec: "avc", width, height },
-      audio: {
-        codec: "aac",
-        numberOfChannels: 1,
-        sampleRate: OUTPUT_SAMPLE_RATE,
-      },
+      audio: { codec: "aac", numberOfChannels: 1, sampleRate: OUTPUT_SAMPLE_RATE },
       fastStart: "in-memory",
     });
 
-    // --- Video encoder (Main profile for broad compatibility)
     const videoEncoder = new VideoEncoder({
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-      error: (e) => console.error("VideoEncoder error:", e),
+      error: (e) => console.error("VideoEncoder:", e),
     });
     videoEncoder.configure({
       codec: "avc1.4d0020",
@@ -81,10 +85,9 @@ export function useRecorder() {
       framerate: fps,
     });
 
-    // --- Audio encoder (44100 Hz AAC for universal playback)
     const audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-      error: (e) => console.error("AudioEncoder error:", e),
+      error: (e) => console.error("AudioEncoder:", e),
     });
     audioEncoder.configure({
       codec: "mp4a.40.2",
@@ -93,49 +96,70 @@ export function useRecorder() {
       bitrate: 128_000,
     });
 
-    // Resample and encode ALL audio, then flush before video
-    const resampled = resampleToFloat32(audioPcm, sampleRate, OUTPUT_SAMPLE_RATE);
-    const CHUNK_SIZE = OUTPUT_SAMPLE_RATE;
-    for (let off = 0; off < resampled.length; off += CHUNK_SIZE) {
-      const end = Math.min(off + CHUNK_SIZE, resampled.length);
-      const slice = resampled.slice(off, end);
-      const ad = new AudioData({
-        format: "f32-planar",
-        sampleRate: OUTPUT_SAMPLE_RATE,
-        numberOfFrames: slice.length,
-        numberOfChannels: 1,
-        timestamp: Math.round((off / OUTPUT_SAMPLE_RATE) * 1_000_000),
-        data: slice,
-      });
-      audioEncoder.encode(ad);
-      ad.close();
-    }
-    await audioEncoder.flush();
-    audioEncoder.close();
+    // Audio chunk sending config (matches SDK's expected pace)
+    const SDK_CHUNK_BYTES = 32000;
+    const SDK_CHUNK_INTERVAL = 80; // ms
+    const pcmBytes = new Uint8Array(audioPcm.buffer);
+    let sdkOffset = 0;
 
-    // Encode video frames sequentially
-    const audioDurMs = (resampled.length / OUTPUT_SAMPLE_RATE) * 1000;
-    const totalFrames = Math.ceil(audioDurMs / (1000 / fps));
+    // Audio encoding config (encode in sync with frame timestamps)
+    const AUDIO_CHUNK_SAMPLES = Math.round(OUTPUT_SAMPLE_RATE / fps); // ~1470 samples per frame
+    let audioSampleOffset = 0;
+
     const GOP = fps * 2;
     const frameDuration = Math.round(1000 / fps);
 
+    // Frame-by-frame loop: capture video + encode matching audio + send SDK chunks
     for (let i = 0; i < totalFrames; i++) {
+      const timeMs = i * (1000 / fps);
+      const timeUs = Math.round((i * 1_000_000) / fps);
+
+      // 1. Capture video frame
       offCtx.drawImage(canvas, 0, 0, width, height);
-      const timestamp = Math.round((i * 1_000_000) / fps);
-      const frame = new VideoFrame(offscreen, { timestamp });
+      const frame = new VideoFrame(offscreen, { timestamp: timeUs });
       videoEncoder.encode(frame, { keyFrame: i % GOP === 0 });
       frame.close();
+
+      // 2. Encode matching audio slice (keeps audio in lockstep with video)
+      const audioEnd = Math.min(audioSampleOffset + AUDIO_CHUNK_SAMPLES, resampled.length);
+      if (audioSampleOffset < resampled.length) {
+        const slice = resampled.slice(audioSampleOffset, audioEnd);
+        const ad = new AudioData({
+          format: "f32-planar",
+          sampleRate: OUTPUT_SAMPLE_RATE,
+          numberOfFrames: slice.length,
+          numberOfChannels: 1,
+          timestamp: timeUs,
+          data: slice,
+        });
+        audioEncoder.encode(ad);
+        ad.close();
+        audioSampleOffset = audioEnd;
+      }
+
+      // 3. Send SDK audio chunks at the right pace
+      while (sdkOffset < pcmBytes.length && (sdkOffset / SDK_CHUNK_BYTES) * SDK_CHUNK_INTERVAL <= timeMs) {
+        const end = Math.min(sdkOffset + SDK_CHUNK_BYTES, pcmBytes.length);
+        const isLast = end >= pcmBytes.length;
+        sendAudioToSDK(pcmBytes.slice(sdkOffset, end).buffer, false);
+        sdkOffset = end;
+        if (isLast) {
+          sendAudioToSDK(new ArrayBuffer(0), true);
+        }
+      }
+
       await new Promise((r) => setTimeout(r, frameDuration));
     }
 
+    // Finalize
     phase.value = "encoding";
     await videoEncoder.flush();
     videoEncoder.close();
+    await audioEncoder.flush();
+    audioEncoder.close();
     muxer.finalize();
 
-    const buf = target.buffer;
-    const blob = new Blob([buf], { type: "video/mp4" });
-
+    const blob = new Blob([target.buffer], { type: "video/mp4" });
     recording.value = false;
     phase.value = "done";
     return blob;
@@ -147,7 +171,6 @@ export function useRecorder() {
     a.href = url;
     a.download = filename;
     a.click();
-    // Delay revocation so the browser has time to start the download
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
