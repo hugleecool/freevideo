@@ -113,7 +113,7 @@ async function generate() {
 
 function download() {
   if (!resultBlob.value) return;
-  recorder.downloadBlob(resultBlob.value, "freevideo.mp4");
+  recorder.downloadBlob(resultBlob.value, "freevideo.webm");
 }
 
 function reset() {
