@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// Force HMR refresh
 import { ref, computed, onMounted } from "vue";
 import { useHead } from "@unhead/vue/legacy";
 import { useAvatar } from "@/composables/useAvatar";
