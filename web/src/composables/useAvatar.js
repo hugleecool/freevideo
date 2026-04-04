@@ -50,12 +50,51 @@ export function useAvatar(containerRef) {
             loading.value = false;
         }
     }
-    // MUST be called inside a real user click handler (autoplay policy)
+    /**
+     * Start WebSocket connection to the SDK driving service.
+     * MUST be called inside a real user click handler (autoplay policy for AudioContext).
+     * Resolves only when connectionState becomes "connected".
+     */
     async function startConnection() {
         if (!controller.value)
             throw new Error("No controller");
+        // Initialize AudioContext first (requires user gesture)
         await controller.value.initializeAudioContext();
+        // If already connected, nothing to do
+        if (connectionState.value === "connected") {
+            return;
+        }
+        // Start the WebSocket connection
         await controller.value.start();
+        // CRITICAL: Wait for connectionState to reach "connected" before returning.
+        // controller.start() initiates the connection but does NOT wait for the
+        // WebSocket handshake to complete. Sending audio before "connected" state
+        // causes the SDK to silently drop all data -> avatar never moves.
+        if (connectionState.value !== "connected") {
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error("Connection timeout: SDK did not reach 'connected' state within 10s"));
+                }, 10_000);
+                // The onConnectionState callback is already set up in loadAvatar.
+                // We wrap it to also detect when we reach "connected".
+                const originalCallback = controller.value.onConnectionState;
+                controller.value.onConnectionState = (state) => {
+                    // Forward to original handler (updates reactive refs)
+                    originalCallback?.(state);
+                    if (state === "connected") {
+                        clearTimeout(timeout);
+                        // Restore original callback
+                        controller.value.onConnectionState = originalCallback;
+                        resolve();
+                    }
+                    else if (state === "failed") {
+                        clearTimeout(timeout);
+                        controller.value.onConnectionState = originalCallback;
+                        reject(new Error("SDK connection failed"));
+                    }
+                };
+            });
+        }
     }
     function sendAudio(data, isEnd) {
         controller.value?.send(data, isEnd);

@@ -75,10 +75,12 @@ async function generate() {
     }
     try {
         // 1. Connect (needs user gesture for AudioContext)
-        stage.value = "tts";
-        stageMsg.value = "Connecting to avatar...";
+        //    startConnection() now waits until connectionState === "connected"
+        stage.value = "connecting";
+        stageMsg.value = "Connecting to avatar service...";
         await avatar.startConnection();
         // 2. TTS
+        stage.value = "tts";
         stageMsg.value = "Generating speech...";
         progress.value = 0;
         const pcmBuffer = await fetchTTS(text, selectedVoice.value);
@@ -245,6 +247,11 @@ if (__VLS_ctx.errorMsg) {
         ...{ class: "ml-2 underline" },
     });
 }
+if (__VLS_ctx.stage === 'connecting') {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
+        ...{ class: "text-xs text-blue-400" },
+    });
+}
 if (__VLS_ctx.stage === 'speaking' || __VLS_ctx.stage === 'recording' || __VLS_ctx.stage === 'encoding') {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
         ...{ class: "text-xs text-yellow-400" },
@@ -403,6 +410,8 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.a, __VLS_intrinsicElements.a)(
 /** @type {__VLS_StyleScopedClasses['text-red-300']} */ ;
 /** @type {__VLS_StyleScopedClasses['ml-2']} */ ;
 /** @type {__VLS_StyleScopedClasses['underline']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-xs']} */ ;
+/** @type {__VLS_StyleScopedClasses['text-blue-400']} */ ;
 /** @type {__VLS_StyleScopedClasses['text-xs']} */ ;
 /** @type {__VLS_StyleScopedClasses['text-yellow-400']} */ ;
 /** @type {__VLS_StyleScopedClasses['w-full']} */ ;

@@ -12,7 +12,7 @@ const selectedAvatar = ref(AVATARS[0].id);
 const charCount = computed(() => textInput.value.length);
 const maxChars = 500;
 
-type Stage = "idle" | "loading" | "ready" | "tts" | "speaking" | "recording" | "encoding" | "done" | "error";
+type Stage = "idle" | "loading" | "ready" | "connecting" | "tts" | "speaking" | "recording" | "encoding" | "done" | "error";
 const stage = ref<Stage>("idle");
 const stageMsg = ref("");
 const errorMsg = ref("");
@@ -83,11 +83,13 @@ async function generate() {
 
   try {
     // 1. Connect (needs user gesture for AudioContext)
-    stage.value = "tts";
-    stageMsg.value = "Connecting to avatar...";
+    //    startConnection() now waits until connectionState === "connected"
+    stage.value = "connecting";
+    stageMsg.value = "Connecting to avatar service...";
     await avatar.startConnection();
 
     // 2. TTS
+    stage.value = "tts";
     stageMsg.value = "Generating speech...";
     progress.value = 0;
     const pcmBuffer = await fetchTTS(text, selectedVoice.value);
@@ -235,6 +237,9 @@ function reset() {
           </div>
 
           <!-- Status hint -->
+          <p v-if="stage === 'connecting'" class="text-xs text-blue-400">
+            Establishing WebSocket connection to avatar service...
+          </p>
           <p v-if="stage === 'speaking' || stage === 'recording' || stage === 'encoding'" class="text-xs text-yellow-400">
             Please don't close this page while generating.
           </p>
