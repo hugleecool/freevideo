@@ -13,6 +13,7 @@ export function useAvatar(containerRef) {
         await AvatarSDK.initialize(appId, {
             environment: Environment.intl,
             drivingServiceMode: DrivingServiceMode.sdk,
+            audioFormat: { channelCount: 1, sampleRate: 16000 },
         });
         AvatarSDK.setSessionToken(sessionToken);
     }
