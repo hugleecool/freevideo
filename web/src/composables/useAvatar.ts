@@ -64,9 +64,19 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
   }
 
   async function start() {
-    if (!controller.value) return;
+    if (!controller.value) throw new Error("No controller");
+    console.log("[useAvatar] initializeAudioContext...");
     await (controller.value as any).initializeAudioContext();
-    await controller.value.start();
+    console.log("[useAvatar] initializeAudioContext done, calling start()...");
+
+    // Race start() with a 15s timeout for debugging
+    await Promise.race([
+      controller.value.start(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("start() timed out after 15s")), 15000),
+      ),
+    ]);
+    console.log("[useAvatar] start() done, connected!");
   }
 
   function sendAudio(pcmData: ArrayBuffer, isEnd: boolean) {

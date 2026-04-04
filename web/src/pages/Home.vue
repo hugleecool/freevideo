@@ -11,8 +11,13 @@ const textInput = ref("Hello! This is a free talking avatar video generator powe
 const avatar = useAvatar(containerRef);
 const recorder = useRecorder();
 
-// Spike: hardcoded character ID — replace with a real one from your SpatialReal account
-const CHARACTER_ID = "char_default";
+const CHARACTER_ID = "ca9c5c22-6dba-4b59-ae3b-d26066f8c017"; // Mia
+
+// Expose to window for debugging
+if (typeof window !== "undefined") {
+  (window as any).__avatar = avatar;
+  (window as any).__recorder = recorder;
+}
 
 const PCM_CHUNK_SIZE = 32000;
 const PCM_CHUNK_INTERVAL_MS = 80;
@@ -42,12 +47,14 @@ async function loadChar() {
 }
 
 async function startAvatar() {
-  status.value = "Starting avatar connection...";
+  status.value = "Initializing audio context...";
   try {
+    status.value = "Audio context OK. Calling controller.start()...";
     await avatar.start();
     status.value = "Avatar connected. Click Generate to test TTS + recording.";
   } catch (e: unknown) {
-    status.value = `Start failed: ${e instanceof Error ? e.message : e}`;
+    status.value = `Start failed: ${e instanceof Error ? e.message : String(e)}`;
+    console.error("Start error:", e);
   }
 }
 
