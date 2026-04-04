@@ -1,5 +1,6 @@
 {
   "name": "freevideo-api",
+  "account_id": "b67f6359c009dbd110c9696badf5e69c",
   "main": "src/index.ts",
   "compatibility_date": "2026-04-01",
   "compatibility_flags": ["nodejs_compat"],

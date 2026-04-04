@@ -1,4 +1,6 @@
-const API_BASE = "/api";
+const API_BASE = import.meta.env.DEV
+  ? "/api"
+  : "https://freevideo-api.hugleecool.workers.dev/api";
 
 export async function getSessionToken(): Promise<{
   sessionToken: string;

@@ -13,8 +13,8 @@ import {
 export function useAvatar(containerRef: Ref<HTMLElement | null>) {
   const view = ref<AvatarView | null>(null);
   const controller = ref<AvatarController | null>(null);
-  const connectionState = ref<ConnectionState>("disconnected");
-  const conversationState = ref<ConversationState>("idle");
+  const connectionState = ref<ConnectionState>("disconnected" as ConnectionState);
+  const conversationState = ref<ConversationState>("idle" as ConversationState);
   const loading = ref(false);
   const loadProgress = ref(0);
   const error = ref<string | null>(null);

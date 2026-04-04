@@ -97,9 +97,6 @@ async function generate() {
       pcmData,
       16000,
       (chunk, isEnd) => avatar.sendAudio(chunk, isEnd),
-      30,
-      720,
-      720,
     );
 
     stage.value = "done";
