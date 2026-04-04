@@ -1,0 +1,25 @@
+# FreeVideo
+
+> Forever free AI talking avatar video generator. No sign-up, no limits.
+
+FreeVideo lets users type text, pick a voice and AI avatar, and generate a talking video in seconds. The video is rendered entirely in the browser using SpatialReal SDK for photorealistic avatar lip-sync and Fish Audio for text-to-speech.
+
+## Key Facts
+- 74+ languages supported
+- 28 photorealistic AI avatars
+- Forever free — no credit card, no sign-up
+- Videos can be used commercially
+- Privacy-safe: video rendered in browser, text not stored
+
+## Technology
+- Avatar rendering: SpatialReal SDK (real-time 3DGS, not 2D video stream)
+- Text-to-speech: Fish Audio S2-Pro (80+ languages, natural emotion)
+- Video recording: canvas.captureStream + MediaRecorder
+- Frontend: Vue 3 + Vite + Tailwind CSS
+- Backend: Hono on Cloudflare Workers
+
+## Links
+- Website: https://freevideo.spatialreal.ai
+- GitHub: https://github.com/hugleecool/freevideo
+- SpatialReal SDK: https://docs.spatialreal.ai
+- Fish Audio: https://fish.audio
