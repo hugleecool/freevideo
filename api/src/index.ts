@@ -6,6 +6,7 @@ import { voicesRoute } from "./routes/voices";
 
 export type Bindings = {
   SPATIALREAL_API_KEY: string;
+  SPATIALREAL_APP_ID: string;
   FISH_AUDIO_API_KEY: string;
 };
 

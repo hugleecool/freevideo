@@ -14,10 +14,12 @@ sessionRoute.post("/session-token", async (c) => {
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "X-API-KEY": apiKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        expire_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+      }),
     },
   );
 
@@ -25,6 +27,6 @@ sessionRoute.post("/session-token", async (c) => {
     return c.json({ error: "Failed to get session token" }, res.status);
   }
 
-  const data = await res.json();
-  return c.json(data);
+  const data = (await res.json()) as Record<string, unknown>;
+  return c.json({ ...data, app_id: c.env.SPATIALREAL_APP_ID });
 });
