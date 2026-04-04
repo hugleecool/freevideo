@@ -3,15 +3,17 @@ export interface Voice {
   name: string;
   lang: string;
   langLabel: string;
+  gender: "female" | "male";
 }
 
+// Real Fish Audio voice model IDs — verified working
 export const VOICES: Voice[] = [
-  { id: "802e3bc2b27e49c2995d23ef70e6ac89", name: "Female (Default)", lang: "en", langLabel: "English" },
-  { id: "e58b0d7efca34b2a85e26d5c0b4b9e24", name: "Male (Energetic)", lang: "en", langLabel: "English" },
-  { id: "7f92f8afb8ec43bf81429cc1c9199cb1", name: "女声", lang: "zh", langLabel: "中文" },
-  { id: "ad9e6e0f3a3f4b67a1c7e5c2d8f0b9a2", name: "男声", lang: "zh", langLabel: "中文" },
-  { id: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", name: "女性", lang: "ja", langLabel: "日本語" },
-  { id: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7", name: "여성", lang: "ko", langLabel: "한국어" },
+  { id: "59e9dc1cb20c452584788a2690c80970", name: "Alle (Female)", lang: "en", langLabel: "English", gender: "female" },
+  { id: "802e3bc2b27e49c2995d23ef70e6ac89", name: "Energetic Male", lang: "en", langLabel: "English", gender: "male" },
+  { id: "4f201abba2574feeae11e5ebf737859e", name: "琨琨 (女声)", lang: "zh", langLabel: "中文", gender: "female" },
+  { id: "ca8fb681ce2040958c15ede5eef86177", name: "翔洲 (男声)", lang: "zh", langLabel: "中文", gender: "male" },
+  { id: "5161d41404314212af1254556477c17d", name: "元気な女性", lang: "ja", langLabel: "日本語", gender: "female" },
+  { id: "9aae54921dd944948ee08d35f6b5f984", name: "유라 (여성)", lang: "ko", langLabel: "한국어", gender: "female" },
 ];
 
 export const AVATARS = [

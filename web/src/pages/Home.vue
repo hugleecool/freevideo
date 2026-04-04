@@ -93,7 +93,7 @@ async function generate() {
     const canvas = avatar.getCanvas();
     if (!canvas) throw new Error("Canvas not found");
 
-    // Start recording (captures frames for audio duration, returns MP4 blob when done)
+    // Start recording (captures canvas + audio, returns MP4 blob when done)
     const recordPromise = recorder.startRecording(canvas, pcmData, 16000, 30, 720, 720);
 
     // Send audio chunks to SDK for lip sync
