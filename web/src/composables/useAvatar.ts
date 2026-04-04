@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted, type Ref } from "vue";
+import { ref, onUnmounted, type Ref } from "vue";
 import {
   AvatarSDK,
   AvatarManager,
@@ -18,6 +18,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
   const loading = ref(false);
   const loadProgress = ref(0);
   const error = ref<string | null>(null);
+  const ready = ref(false);
 
   async function initialize(appId: string, sessionToken: string) {
     await AvatarSDK.initialize(appId, {
@@ -46,6 +47,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
 
       avatarView.controller.onConnectionState = (state: ConnectionState) => {
         connectionState.value = state;
+        if (state === "connected") ready.value = true;
       };
       avatarView.controller.onConversationState = (state: ConversationState) => {
         conversationState.value = state;
@@ -63,24 +65,37 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     }
   }
 
-  async function start() {
+  // MUST be called inside a real user click handler (autoplay policy)
+  async function startConnection() {
     if (!controller.value) throw new Error("No controller");
-    console.log("[useAvatar] initializeAudioContext...");
     await (controller.value as any).initializeAudioContext();
-    console.log("[useAvatar] initializeAudioContext done, calling start()...");
-
-    // Race start() with a 15s timeout for debugging
-    await Promise.race([
-      controller.value.start(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("start() timed out after 15s")), 15000),
-      ),
-    ]);
-    console.log("[useAvatar] start() done, connected!");
+    await controller.value.start();
   }
 
-  function sendAudio(pcmData: ArrayBuffer, isEnd: boolean) {
-    controller.value?.send(pcmData, isEnd);
+  function sendAudioChunks(
+    pcmBuffer: ArrayBuffer,
+    onProgress?: (pct: number) => void,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const bytes = new Uint8Array(pcmBuffer);
+      const CHUNK = 32000;
+      const INTERVAL = 80;
+      let offset = 0;
+
+      const next = () => {
+        if (offset >= bytes.length) {
+          controller.value?.send(new ArrayBuffer(0), true);
+          resolve();
+          return;
+        }
+        const end = Math.min(offset + CHUNK, bytes.length);
+        controller.value?.send(bytes.slice(offset, end).buffer, false);
+        offset = end;
+        onProgress?.(offset / bytes.length);
+        setTimeout(next, INTERVAL);
+      };
+      next();
+    });
   }
 
   function getCanvas(): HTMLCanvasElement | null {
@@ -94,6 +109,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
       view.value.dispose();
       view.value = null;
       controller.value = null;
+      ready.value = false;
     }
   }
 
@@ -107,10 +123,11 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     loading,
     loadProgress,
     error,
+    ready,
     initialize,
     loadAvatar,
-    start,
-    sendAudio,
+    startConnection,
+    sendAudioChunks,
     getCanvas,
     cleanup,
   };
