@@ -61,10 +61,18 @@ async function generate() {
     const text = textInput.value.trim();
     if (!text || text.length > maxChars)
         return;
-    if (stage.value !== "ready")
+    if (stage.value !== "ready" && stage.value !== "error")
         return;
     resultBlob.value = null;
     errorMsg.value = "";
+    // Re-init SDK if it wasn't loaded (e.g. onMounted failed with 500)
+    if (!avatar.controller.value) {
+        stage.value = "loading";
+        stageMsg.value = "Initializing...";
+        const { sessionToken, app_id } = await getSessionToken();
+        await avatar.initialize(app_id, sessionToken);
+        await avatar.loadAvatar(selectedAvatar.value);
+    }
     try {
         // 1. Connect (needs user gesture for AudioContext)
         stage.value = "tts";
