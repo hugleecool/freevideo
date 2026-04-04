@@ -36,10 +36,32 @@ export function useRecorder() {
   /**
    * Record canvas + audio in sync.
    *
-   * Instead of encoding audio upfront, this function captures video frames
-   * AND feeds audio to the muxer in lockstep, both driven by the same
-   * wall-clock timer. This ensures the audio and video timestamps match
-   * what's actually shown on the canvas (avatar lip-sync).
+   * ## A/V Sync Strategy
+   *
+   * The SpatialReal SDK has inherent network latency in its lip-sync pipeline:
+   *   PCM chunk → server → animation data → render on canvas
+   *
+   * This means if we send audio and capture the canvas simultaneously, the
+   * lip animation will lag behind the audio by the SDK's processing delay.
+   *
+   * To fix this, we use a "pre-send" strategy:
+   *
+   * 1. **Pre-send phase**: Before recording starts, we send the first few
+   *    hundred milliseconds of audio to the SDK and wait for it to process.
+   *    This "primes" the lip-sync pipeline.
+   *
+   * 2. **Recording phase**: During recording, SDK audio is sent AHEAD of the
+   *    video capture timeline by `SDK_LEAD_MS`. This ensures that when we
+   *    capture frame N, the SDK has already received and (mostly) processed
+   *    the audio corresponding to that frame.
+   *
+   * 3. **Audio offset**: The audio track in the MP4 starts at timestamp 0
+   *    but corresponds to the same wall-clock moment as the video. Since the
+   *    SDK was pre-fed, the canvas lip-sync at frame N matches the audio at
+   *    frame N.
+   *
+   * 4. **Stable timing**: We use performance.now() to compensate for encoding
+   *    overhead, preventing timestamp drift from setTimeout inaccuracy.
    *
    * @param sendAudioToSDK - callback to send PCM chunks to avatar SDK for lip-sync
    */
@@ -96,31 +118,79 @@ export function useRecorder() {
       bitrate: 128_000,
     });
 
-    // Audio chunk sending config (matches SDK's expected pace)
-    const SDK_CHUNK_BYTES = 32000;
-    const SDK_CHUNK_INTERVAL = 80; // ms
+    // --- SDK audio chunk config ---
+    const SDK_CHUNK_BYTES = 32000;  // 32000 bytes = 1s of PCM16 mono 16kHz
+    const SDK_CHUNK_INTERVAL_MS = 80;
     const pcmBytes = new Uint8Array(audioPcm.buffer);
+
+    // --- A/V Sync: SDK lead time ---
+    // The SDK needs time to process audio and render lip-sync animation.
+    // We pre-send audio chunks to the SDK ahead of the recording timeline
+    // so that by the time we capture a frame, the lip animation is ready.
+    //
+    // SDK_LEAD_MS: How far ahead (in ms) we send audio to the SDK relative
+    // to the current video frame's logical time. This should roughly match
+    // the SDK's end-to-end lip-sync latency (network + processing + render).
+    // 300ms is a reasonable default; can be tuned per deployment.
+    const SDK_LEAD_MS = 300;
+
+    // --- Pre-send phase ---
+    // Send SDK_LEAD_MS worth of audio chunks before we start capturing frames.
+    // This primes the SDK's lip-sync pipeline so frame 0 already has lip animation.
+    let sdkSendTimeMs = 0; // Logical "time" of the next SDK chunk to send
     let sdkOffset = 0;
 
-    // Audio encoding config (encode in sync with frame timestamps)
-    const AUDIO_CHUNK_SAMPLES = Math.round(OUTPUT_SAMPLE_RATE / fps); // ~1470 samples per frame
+    const preSendEndMs = SDK_LEAD_MS;
+    while (sdkOffset < pcmBytes.length && sdkSendTimeMs < preSendEndMs) {
+      const end = Math.min(sdkOffset + SDK_CHUNK_BYTES, pcmBytes.length);
+      sendAudioToSDK(pcmBytes.slice(sdkOffset, end).buffer, false);
+      sdkOffset = end;
+      sdkSendTimeMs += SDK_CHUNK_INTERVAL_MS;
+    }
+
+    // Wait for the SDK to process the pre-sent audio
+    await new Promise((r) => setTimeout(r, SDK_LEAD_MS));
+
+    // --- Audio encoding config ---
+    const AUDIO_CHUNK_SAMPLES = Math.round(OUTPUT_SAMPLE_RATE / fps);
     let audioSampleOffset = 0;
 
     const GOP = fps * 2;
-    const frameDuration = Math.round(1000 / fps);
+    const frameDurationMs = 1000 / fps;
 
-    // Frame-by-frame loop: capture video + encode matching audio + send SDK chunks
+    // --- Frame-by-frame recording loop ---
+    // Use performance.now() for stable timing to avoid setTimeout drift.
+    const loopStartTime = performance.now();
+
     for (let i = 0; i < totalFrames; i++) {
-      const timeMs = i * (1000 / fps);
-      const timeUs = Math.round((i * 1_000_000) / fps);
+      const frameTimeUs = Math.round((i * 1_000_000) / fps);
+      const frameTimeMs = i * frameDurationMs;
 
-      // 1. Capture video frame
+      // 1. Send SDK audio chunks with lead time.
+      // The SDK should receive audio for time (frameTimeMs + SDK_LEAD_MS).
+      // sdkSendTimeMs tracks how far ahead we've already sent.
+      const sdkTargetMs = frameTimeMs + SDK_LEAD_MS;
+      while (sdkOffset < pcmBytes.length && sdkSendTimeMs <= sdkTargetMs) {
+        const end = Math.min(sdkOffset + SDK_CHUNK_BYTES, pcmBytes.length);
+        const isLast = end >= pcmBytes.length;
+        sendAudioToSDK(pcmBytes.slice(sdkOffset, end).buffer, false);
+        sdkOffset = end;
+        sdkSendTimeMs += SDK_CHUNK_INTERVAL_MS;
+        if (isLast) {
+          sendAudioToSDK(new ArrayBuffer(0), true);
+        }
+      }
+
+      // 2. Capture video frame from the canvas.
+      // The canvas now shows lip-sync for audio around frameTimeMs because
+      // we pre-sent audio SDK_LEAD_MS ahead.
       offCtx.drawImage(canvas, 0, 0, width, height);
-      const frame = new VideoFrame(offscreen, { timestamp: timeUs });
+      const frame = new VideoFrame(offscreen, { timestamp: frameTimeUs });
       videoEncoder.encode(frame, { keyFrame: i % GOP === 0 });
       frame.close();
 
-      // 2. Encode matching audio slice (keeps audio in lockstep with video)
+      // 3. Encode the matching audio slice for this frame.
+      // Audio timestamps align with video timestamps (both start at 0).
       const audioEnd = Math.min(audioSampleOffset + AUDIO_CHUNK_SAMPLES, resampled.length);
       if (audioSampleOffset < resampled.length) {
         const slice = resampled.slice(audioSampleOffset, audioEnd);
@@ -129,7 +199,7 @@ export function useRecorder() {
           sampleRate: OUTPUT_SAMPLE_RATE,
           numberOfFrames: slice.length,
           numberOfChannels: 1,
-          timestamp: timeUs,
+          timestamp: frameTimeUs,
           data: slice,
         });
         audioEncoder.encode(ad);
@@ -137,21 +207,17 @@ export function useRecorder() {
         audioSampleOffset = audioEnd;
       }
 
-      // 3. Send SDK audio chunks at the right pace
-      while (sdkOffset < pcmBytes.length && (sdkOffset / SDK_CHUNK_BYTES) * SDK_CHUNK_INTERVAL <= timeMs) {
-        const end = Math.min(sdkOffset + SDK_CHUNK_BYTES, pcmBytes.length);
-        const isLast = end >= pcmBytes.length;
-        sendAudioToSDK(pcmBytes.slice(sdkOffset, end).buffer, false);
-        sdkOffset = end;
-        if (isLast) {
-          sendAudioToSDK(new ArrayBuffer(0), true);
-        }
+      // 4. Wait for the next frame, compensating for work done this iteration.
+      // This prevents timing drift from encoding overhead accumulating.
+      const elapsed = performance.now() - loopStartTime;
+      const nextFrameTargetMs = (i + 1) * frameDurationMs;
+      const sleepMs = Math.max(0, nextFrameTargetMs - elapsed);
+      if (sleepMs > 0) {
+        await new Promise((r) => setTimeout(r, sleepMs));
       }
-
-      await new Promise((r) => setTimeout(r, frameDuration));
     }
 
-    // Finalize
+    // --- Finalize ---
     phase.value = "encoding";
     await videoEncoder.flush();
     videoEncoder.close();
