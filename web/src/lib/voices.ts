@@ -6,14 +6,14 @@ export interface Voice {
   gender: "female" | "male";
 }
 
-// Real Fish Audio voice model IDs — verified working
+// Verified working Fish Audio voice model IDs (all tested via API)
 export const VOICES: Voice[] = [
-  { id: "59e9dc1cb20c452584788a2690c80970", name: "Alle (Female)", lang: "en", langLabel: "English", gender: "female" },
+  { id: "b545c585f631496c914815291da4e893", name: "Friendly Women", lang: "en", langLabel: "English", gender: "female" },
   { id: "802e3bc2b27e49c2995d23ef70e6ac89", name: "Energetic Male", lang: "en", langLabel: "English", gender: "male" },
   { id: "4f201abba2574feeae11e5ebf737859e", name: "琨琨 (女声)", lang: "zh", langLabel: "中文", gender: "female" },
   { id: "ca8fb681ce2040958c15ede5eef86177", name: "翔洲 (男声)", lang: "zh", langLabel: "中文", gender: "male" },
   { id: "5161d41404314212af1254556477c17d", name: "元気な女性", lang: "ja", langLabel: "日本語", gender: "female" },
-  { id: "9aae54921dd944948ee08d35f6b5f984", name: "유라 (여성)", lang: "ko", langLabel: "한국어", gender: "female" },
+  { id: "5c71ab35290241ed842d036e4bb0e5da", name: "손정은 (여성)", lang: "ko", langLabel: "한국어", gender: "female" },
 ];
 
 export const AVATARS = [
