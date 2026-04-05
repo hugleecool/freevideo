@@ -38,6 +38,10 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     loading.value = true;
     loadProgress.value = 0;
     error.value = null;
+    // Fresh controller means fresh connection state
+    connectionState.value = "disconnected" as ConnectionState;
+    conversationState.value = "idle" as ConversationState;
+    ready.value = false;
 
     try {
       const avatar = await AvatarManager.shared.load(characterId, (info) => {
@@ -175,6 +179,11 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
       view.value = null;
       controller.value = null;
       ready.value = false;
+      // Reset connection state so the next controller's startConnection()
+      // actually calls start() instead of skipping because the stale value
+      // still says "connected".
+      connectionState.value = "disconnected" as ConnectionState;
+      conversationState.value = "idle" as ConversationState;
     }
   }
 
