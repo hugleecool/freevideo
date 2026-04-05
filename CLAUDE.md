@@ -79,6 +79,7 @@ api/
 - **Audio tap, not re-encoding**: SDK plays audio through its own AudioContext. We tap that AudioContext directly via `installAudioTap()` → `MediaStreamDestination`, so MediaRecorder sees the exact audio the user hears. A/V sync is guaranteed because both video (canvas) and audio (tap) share SDK's clock.
 - **Target size = CSS size**: SDK canvas buffer is Retina (e.g. 1408×1408) but rendered content is CSS size (e.g. 512×512). Exporting buffer size produces oversized blurry video; exporting CSS size matches SDK's intended quality.
 - **Per-locale routing**: `/` → English, `/zh/` → Chinese, etc. Each locale has pre-rendered HTML with native meta tags + JSON-LD. Default voice per locale matches native language.
+- **Downscale pipeline for export**: `sdkCanvas.captureStream()` → `<video>` → 2D canvas (resized to CSS display size, max 720) → `captureStream()` → `MediaRecorder`. Avoids Retina-scale bloat; bitrate 1-4 Mbps (base 2 Mbps @ 512×512, sqrt-scaled). Default avatar: Yuna (female, appears first in AVATARS list).
 
 ## Code Conventions
 
@@ -106,21 +107,36 @@ Target keywords: "free ai avatar video generator", "heygen alternative", "free t
 
 Strategy doc: Feishu wiki "FreeVideo SEO与海外工具站策略" (wiki/DHLRwZFQWi4b7qkNweMcepJUnYe)
 
-## Pending TODOs
+## Pending TODOs (by ROI)
 
-**High priority (cost protection):**
-- Turnstile CAPTCHA on /api/tts endpoint
-- Workers rate limiting (2/min + 20/day per IP)
+**P0 — Cost protection (ship ASAP):**
+- Turnstile CAPTCHA on `/api/tts` endpoint (Fish Audio is pay-per-char, abuse risk real)
+- Workers rate limiting: 2/min + 20/day per IP
 
-**Medium priority (brand/viral):**
-- Video watermark "Made with FreeVideo" overlay
-- og:image social share graphics
-- Product Hunt launch prep
+**P0 — Viral growth (every download = free ad):**
+- Video watermark "Made with FreeVideo" overlay in `useRecorder`'s draw loop
+- Share buttons after generation (X/LinkedIn/WeChat copy-link)
 
-**Ongoing (content + distribution):**
-- Blog sub-articles (5 more, cluster around pillar)
+**P1 — Conversion optimization:**
+- Voice preview: ▶️ button per voice playing a 5s sample (21 pre-recorded clips on CDN)
+- Avatar thumbnails (replace name buttons with 60×60 face images from SpatialReal CDN)
+- Analytics event tracking: text-input rate, generate-click rate, success rate, download rate, voice/avatar distribution
+
+**P1 — Reliability:**
+- Error recovery UX: insufficient-credits fallback, SDK disconnect retry
+- Cache reuse: same text+voice+avatar → serve cached video within 1h (Cloudflare KV hash → URL)
+
+**P2 — Content + distribution:**
+- Expand FAQ to 15 Q&As (long-tail SEO keywords)
+- Blog sub-articles (5 more clustered around existing pillar)
+- og:image social share graphics (per-page with dynamic text)
+- Product Hunt launch prep (gallery images + 30s demo video)
 - Tool directory submissions (AlternativeTo, FutureTools, ToolPilot)
 - Custom domain binding (candidates: freetalker.ai, freeavatar.video, chattava.com)
+
+**P2 — Monetization runway:**
+- "Pro tier coming soon" email capture (HD export, no watermark, custom avatars, API)
+- Embed widget for third-party sites (`<iframe>`)
 
 ## Configured Secrets (Cloudflare Worker)
 
