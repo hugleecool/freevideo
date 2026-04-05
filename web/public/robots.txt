@@ -19,4 +19,4 @@ Allow: /
 User-agent: Google-Extended
 Allow: /
 
-Sitemap: https://freevideo.spatialreal.ai/sitemap.xml
+Sitemap: https://freevideo-3gk.pages.dev/sitemap.xml
