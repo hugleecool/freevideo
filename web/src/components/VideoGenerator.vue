@@ -127,20 +127,30 @@ async function generate() {
 
     stageMsg.value = t("gen_generating_speech");
     const pcmBuffer = await fetchTTS(text, selectedVoice.value);
-    const pcmData = new Int16Array(pcmBuffer);
-    const durationSec = pcmData.length / 16000;
+    const pcmBytes = new Uint8Array(pcmBuffer);
+    const audioDurationMs = (pcmBytes.length / 2 / 16000) * 1000;
 
     stage.value = "speaking";
-    stageMsg.value = `${t("gen_speaking")} (${durationSec.toFixed(0)}s)`;
+    stageMsg.value = `${t("gen_speaking")} (${(audioDurationMs / 1000).toFixed(0)}s)`;
 
     const canvas = avatar.getCanvas();
     if (!canvas) throw new Error("Canvas not found");
 
+    // 1. Push all PCM chunks to SDK upfront (200ms chunks per SDK docs).
+    // SDK buffers server-side; no pacing needed here.
+    const CHUNK_BYTES = 6400; // 200ms at 16kHz PCM16 mono
+    for (let off = 0; off < pcmBytes.length; off += CHUNK_BYTES) {
+      const end = Math.min(off + CHUNK_BYTES, pcmBytes.length);
+      const isLast = end >= pcmBytes.length;
+      avatar.sendAudio(pcmBytes.slice(off, end).buffer, isLast);
+    }
+
+    // 2. Record — waits for SDK to enter "playing" state before starting,
+    // captures SDK's tapped audio output + canvas for perfect sync.
     const blob = await recorder.startRecording(
       canvas,
-      pcmData,
-      16000,
-      (chunk, isEnd) => avatar.sendAudio(chunk, isEnd),
+      audioDurationMs,
+      () => avatar.waitForPlaying(),
     );
 
     stage.value = "done";
@@ -153,7 +163,8 @@ async function generate() {
 
 function download() {
   if (!resultBlob.value) return;
-  recorder.downloadBlob(resultBlob.value, "freevideo.webm");
+  const ext = resultBlob.value.type.includes("mp4") ? "mp4" : "webm";
+  recorder.downloadBlob(resultBlob.value, `freevideo.${ext}`);
 }
 
 function clearError() {

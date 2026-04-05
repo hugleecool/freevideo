@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { getFirstTapStream } from "@/lib/audio-tap";
 
 export function useRecorder() {
   const recording = ref(false);
@@ -9,71 +10,93 @@ export function useRecorder() {
   }
 
   /**
+   * Pick the best supported output format for MediaRecorder.
+   * MP4 first (better compatibility), fall back to WebM.
+   */
+  function pickMimeType(): string {
+    const candidates = [
+      "video/mp4;codecs=avc1.42E01F,mp4a.40.2", // H.264 baseline + AAC
+      "video/mp4;codecs=avc1,mp4a",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ];
+    for (const t of candidates) {
+      if (MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return "video/webm";
+  }
+
+  /**
+   * Compute a sensible video bitrate based on canvas resolution.
+   * Base: 6 Mbps at 720x720. Scales by sqrt(pixels) so 4x area doesn't 4x bitrate.
+   */
+  function bitrateFor(width: number, height: number): number {
+    const base = 6_000_000;
+    const baseArea = 720 * 720;
+    const area = Math.max(width * height, baseArea);
+    const scale = Math.sqrt(area / baseArea);
+    // Clamp so we don't explode on ultra-high-DPI canvases
+    return Math.round(Math.min(base * scale, 12_000_000));
+  }
+
+  /**
    * Record avatar video with audio.
    *
-   * SDK audio delivery strategy (per SpatialReal SDK Mode docs):
-   * - Break PCM into 200ms chunks
-   * - Send chunks back-to-back, no pacing (server buffers)
-   * - Mark final chunk with isEnd=true (triggers avatar's return-to-idle)
-   * - Give SDK a ~250ms head start so canvas animation is ready when
-   *   the recorded audio playback starts
+   * Strategy:
+   * 1. Caller pushes the TTS PCM chunks to the SDK (which plays them
+   *    through its AudioContext — already tapped via installAudioTap()).
+   * 2. We capture the canvas + the SDK's tapped audio stream into a
+   *    single MediaRecorder. Both are driven by the SDK's own clock,
+   *    so A/V sync is guaranteed by construction.
+   * 3. Start recorder as soon as the SDK enters "playing" state (first
+   *    frame of animation is rendered).
    *
-   * @param sendAudioToSDK callback to forward a chunk to the avatar SDK
+   * @param canvas        SDK-rendered canvas
+   * @param audioDurationMs   expected audio duration (used for auto-stop timer)
+   * @param waitForPlaying    awaits SDK's conversationState === "playing"
    */
   async function startRecording(
     canvas: HTMLCanvasElement,
-    audioPcm: Int16Array,
-    sampleRate: number,
-    sendAudioToSDK: (chunk: ArrayBuffer, isEnd: boolean) => void,
-    fps = 30,
+    audioDurationMs: number,
+    waitForPlaying: () => Promise<void>,
   ): Promise<Blob> {
     recording.value = true;
     phase.value = "recording";
 
-    const pcmBytes = new Uint8Array(audioPcm.buffer);
-    const audioDurMs = (audioPcm.length / sampleRate) * 1000;
+    // 1. Wait until SDK actually starts playing (lip-sync animation + audio)
+    await waitForPlaying();
 
-    // --- 1. Send ALL audio chunks to SDK upfront (per SDK docs)
-    // 200ms chunks = 6400 bytes at 16kHz PCM16 mono
-    const CHUNK_MS = 200;
-    const CHUNK_BYTES = (sampleRate * (CHUNK_MS / 1000) * 2); // 2 bytes/sample
-    for (let off = 0; off < pcmBytes.length; off += CHUNK_BYTES) {
-      const end = Math.min(off + CHUNK_BYTES, pcmBytes.length);
-      const isLast = end >= pcmBytes.length;
-      sendAudioToSDK(pcmBytes.slice(off, end).buffer, isLast);
+    // 2. Pick up the SDK's audio stream from the tap (installed at SDK init)
+    const audioStream = getFirstTapStream();
+    if (!audioStream) {
+      throw new Error(
+        "Audio tap stream unavailable — SDK has not produced any audio yet",
+      );
     }
 
-    // --- 2. Give SDK a head start so its lip-sync catches up with audio
-    const SDK_HEAD_START_MS = 250;
-    await new Promise((r) => setTimeout(r, SDK_HEAD_START_MS));
+    // 3. Capture canvas at its native refresh rate (default browser-chosen)
+    const videoStream = canvas.captureStream();
 
-    // --- 3. Set up local audio playback → MediaStreamDestination (recording only)
-    const audioCtx = new AudioContext({ sampleRate });
-    const audioBuffer = audioCtx.createBuffer(1, audioPcm.length, sampleRate);
-    const channelData = audioBuffer.getChannelData(0);
-    for (let i = 0; i < audioPcm.length; i++) {
-      channelData[i] = audioPcm[i] / 32768;
-    }
+    // 4. Log actual capture dimensions for diagnostics
+    const actualW = canvas.width;
+    const actualH = canvas.height;
+    const videoBitrate = bitrateFor(actualW, actualH);
+    console.log(
+      `[recorder] canvas=${actualW}x${actualH} dpr=${window.devicePixelRatio} bitrate=${(videoBitrate / 1_000_000).toFixed(1)}Mbps`,
+    );
 
-    const streamDest = audioCtx.createMediaStreamDestination();
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(streamDest);
-
-    // --- 4. Combine canvas + audio into MediaRecorder
-    const videoStream = canvas.captureStream(fps);
-    const combinedStream = new MediaStream([
+    // 5. Combine and record
+    const combined = new MediaStream([
       ...videoStream.getVideoTracks(),
-      ...streamDest.stream.getAudioTracks(),
+      ...audioStream.getAudioTracks(),
     ]);
 
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-      ? "video/webm;codecs=vp9,opus"
-      : "video/webm";
-
-    const recorder = new MediaRecorder(combinedStream, {
+    const mimeType = pickMimeType();
+    const recorder = new MediaRecorder(combined, {
       mimeType,
-      videoBitsPerSecond: 2_500_000,
+      videoBitsPerSecond: videoBitrate,
+      audioBitsPerSecond: 128_000,
     });
 
     const chunks: Blob[] = [];
@@ -91,16 +114,13 @@ export function useRecorder() {
     });
 
     recorder.start(100);
-    source.start(0);
 
-    // --- 5. Stop after audio finishes + tail time for return-to-idle animation
+    // 6. Stop after audio finishes + tail time for return-to-idle animation
     const TAIL_IDLE_MS = 1200;
     setTimeout(() => {
-      try { source.stop(); } catch { /* already stopped */ }
       recorder.stop();
       videoStream.getTracks().forEach((t) => t.stop());
-      audioCtx.close();
-    }, audioDurMs + TAIL_IDLE_MS);
+    }, audioDurationMs + TAIL_IDLE_MS);
 
     return donePromise;
   }
@@ -120,5 +140,6 @@ export function useRecorder() {
     supportsRecording,
     startRecording,
     downloadBlob,
+    pickMimeType,
   };
 }

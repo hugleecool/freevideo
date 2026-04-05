@@ -9,6 +9,7 @@ import {
   Environment,
   DrivingServiceMode,
 } from "@spatialwalk/avatarkit";
+import { installAudioTap } from "@/lib/audio-tap";
 
 export function useAvatar(containerRef: Ref<HTMLElement | null>) {
   const view = ref<AvatarView | null>(null);
@@ -21,6 +22,11 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
   const ready = ref(false);
 
   async function initialize(appId: string, sessionToken: string) {
+    // Install the AudioContext tap BEFORE the SDK creates its context,
+    // so we can capture the SDK's audio output for video recording with
+    // perfect A/V sync (no separate PCM playback needed).
+    installAudioTap();
+
     await AvatarSDK.initialize(appId, {
       environment: Environment.intl,
       drivingServiceMode: DrivingServiceMode.sdk,
@@ -141,6 +147,39 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     controller.value?.interrupt();
   }
 
+  /**
+   * Wait until the SDK's conversation state reaches "playing" — i.e. it
+   * has received + processed audio and is actively animating + playing
+   * it back. This is the moment to start recording for perfect A/V sync.
+   */
+  function waitForPlaying(timeoutMs = 5000): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (conversationState.value === ("playing" as ConversationState)) {
+        resolve();
+        return;
+      }
+      const ctrl = controller.value;
+      if (!ctrl) {
+        reject(new Error("No controller"));
+        return;
+      }
+      const timeout = setTimeout(() => {
+        ctrl.onConversationState = originalCallback;
+        reject(new Error("Timeout waiting for playing state"));
+      }, timeoutMs);
+
+      const originalCallback = ctrl.onConversationState;
+      ctrl.onConversationState = (state: ConversationState) => {
+        originalCallback?.(state);
+        if (state === ("playing" as ConversationState)) {
+          clearTimeout(timeout);
+          ctrl.onConversationState = originalCallback;
+          resolve();
+        }
+      };
+    });
+  }
+
   function sendAudioChunks(
     pcmBuffer: ArrayBuffer,
     onProgress?: (pct: number) => void,
@@ -203,6 +242,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     startConnection,
     sendAudio,
     interrupt,
+    waitForPlaying,
     sendAudioChunks,
     getCanvas,
     cleanup,
