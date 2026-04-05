@@ -132,13 +132,17 @@ export function useRecorder() {
     }, SDK_CHUNK_INTERVAL_MS);
 
     // --- 6. Stop after audio finishes ---
+    // Add +SDK_LEAD_MS to compensate for our pre-send priming delay, then
+    // +TAIL_SILENCE_MS to capture the avatar's return-to-idle (breathing)
+    // animation after the final audio chunk.
+    const TAIL_SILENCE_MS = 1500;
     setTimeout(() => {
       clearInterval(sdkSendLoop);
-      source.stop();
+      try { source.stop(); } catch { /* already stopped */ }
       recorder.stop();
       videoStream.getTracks().forEach((t) => t.stop());
       audioCtx.close();
-    }, audioDurMs + 500);
+    }, audioDurMs + SDK_LEAD_MS + TAIL_SILENCE_MS);
 
     return donePromise;
   }

@@ -131,6 +131,12 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     controller.value?.send(data, isEnd);
   }
 
+  /** Reset the SDK's current utterance state. Required before sending new audio
+   *  after a previous `send(_, true)` has been received. */
+  function interrupt() {
+    controller.value?.interrupt();
+  }
+
   function sendAudioChunks(
     pcmBuffer: ArrayBuffer,
     onProgress?: (pct: number) => void,
@@ -187,6 +193,7 @@ export function useAvatar(containerRef: Ref<HTMLElement | null>) {
     loadAvatar,
     startConnection,
     sendAudio,
+    interrupt,
     sendAudioChunks,
     getCanvas,
     cleanup,

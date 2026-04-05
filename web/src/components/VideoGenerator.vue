@@ -112,6 +112,7 @@ async function generate() {
   const text = textInput.value.trim();
   if (!text || text.length > maxChars || stage.value === "loading") return;
 
+  // Reset per-generation state (done/error → fresh attempt)
   resultBlob.value = null;
   errorMsg.value = "";
 
@@ -119,6 +120,11 @@ async function generate() {
     stage.value = "tts";
     stageMsg.value = t("gen_connecting");
     await avatar.startConnection();
+
+    // If this is a subsequent generation, reset the SDK's previous-utterance
+    // state. After we sent end=true last time, the SDK won't accept new audio
+    // until interrupted.
+    avatar.interrupt();
 
     stageMsg.value = t("gen_generating_speech");
     const pcmBuffer = await fetchTTS(text, selectedVoice.value);
@@ -151,11 +157,9 @@ function download() {
   recorder.downloadBlob(resultBlob.value, "freevideo.webm");
 }
 
-function reset() {
-  stage.value = "ready";
-  stageMsg.value = "";
+function clearError() {
   errorMsg.value = "";
-  resultBlob.value = null;
+  if (stage.value === "error") stage.value = "ready";
 }
 
 // Group "other voices" by language for the expanded section
@@ -295,21 +299,19 @@ const otherLangGrouped = computed(() => {
       </div>
 
       <button
-        @click="stage === 'done' ? reset() : generate()"
-        :disabled="(!textInput.trim() || charCount > maxChars) && stage !== 'done'"
+        @click="generate()"
+        :disabled="!textInput.trim() || charCount > maxChars || stage === 'tts' || stage === 'speaking' || stage === 'loading'"
         :class="[
           'w-full py-3.5 rounded-xl font-bold text-lg transition-all shadow-sm',
-          stage === 'done'
-            ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-            : stage === 'tts' || stage === 'speaking'
-              ? 'bg-blue-500 text-white cursor-wait'
-              : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none',
+          stage === 'tts' || stage === 'speaking'
+            ? 'bg-blue-500 text-white cursor-wait'
+            : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none',
         ]"
       >
-        <template v-if="stage === 'done'">{{ t('gen_generate_another') }}</template>
-        <template v-else-if="stage === 'tts' || stage === 'speaking'">
+        <template v-if="stage === 'tts' || stage === 'speaking'">
           <span class="inline-block animate-pulse">{{ stageMsg }}</span>
         </template>
+        <template v-else-if="stage === 'done'">{{ t('gen_generate_another') }}</template>
         <template v-else>{{ t('gen_button') }}</template>
       </button>
 
@@ -326,7 +328,7 @@ const otherLangGrouped = computed(() => {
 
       <div v-if="errorMsg" class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">
         {{ errorMsg }}
-        <button @click="reset" class="ml-2 underline font-medium">{{ t('gen_try_again') }}</button>
+        <button @click="clearError" class="ml-2 underline font-medium">{{ t('gen_try_again') }}</button>
       </div>
 
       <p v-if="stage === 'speaking' || stage === 'tts'" class="text-xs text-amber-600 text-center">
