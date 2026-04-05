@@ -3,6 +3,7 @@ import App from "./App.vue";
 import "./styles/index.css";
 import { USE_CASES } from "./data/use-cases";
 import { COMPETITORS } from "./data/competitors";
+import { BLOG_POSTS } from "./data/blog-posts";
 import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "./i18n/locales";
 
 // Non-default locales for route prefix matching (English uses no prefix)
@@ -14,6 +15,7 @@ const routes = [
   { path: "/", component: () => import("./pages/Home.vue") },
   { path: "/use-cases/:slug", component: () => import("./pages/UseCase.vue"), props: true },
   { path: "/compare/:slug", component: () => import("./pages/Compare.vue"), props: true },
+  { path: "/blog/:slug", component: () => import("./pages/BlogPost.vue"), props: true },
 
   // Other locales (prefixed)
   { path: `/:lang(${LOCALE_RE})`, component: () => import("./pages/Home.vue") },
@@ -55,6 +57,11 @@ export function includedRoutes(): string[] {
     for (const c of COMPETITORS) {
       paths.push(`${prefix}/compare/${c.slug}`);
     }
+  }
+
+  // Blog posts (English only for now)
+  for (const p of BLOG_POSTS) {
+    paths.push(`/blog/${p.slug}`);
   }
 
   return paths;

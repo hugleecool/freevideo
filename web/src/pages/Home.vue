@@ -83,6 +83,7 @@ const homeHref = computed(() => localizedPath(locale.value, "/"));
         <a :href="homeHref" class="text-xl font-bold tracking-tight text-gray-900">FreeVideo</a>
         <div class="flex items-center gap-2 text-sm text-gray-500">
           <a href="#how-it-works" class="hover:text-gray-900 hidden sm:block px-3 py-1.5">{{ t("how_title") }}</a>
+          <a href="/blog/ai-avatar-video-guide" class="hover:text-gray-900 hidden sm:block px-3 py-1.5">Blog</a>
           <LocaleSwitcher />
         </div>
       </div>

@@ -7,6 +7,7 @@
           <ul class="space-y-2 text-sm">
             <li><a href="/" class="hover:text-white">Home</a></li>
             <li><a href="/#how-it-works" class="hover:text-white">How it works</a></li>
+            <li><a href="/blog/ai-avatar-video-guide" class="hover:text-white">Blog</a></li>
             <li><a href="/#faq" class="hover:text-white">FAQ</a></li>
           </ul>
         </div>

@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { USE_CASES } from "../src/data/use-cases";
 import { COMPETITORS } from "../src/data/competitors";
+import { BLOG_POSTS } from "../src/data/blog-posts";
 import { SUPPORTED_LOCALES, DEFAULT_LOCALE, LOCALE_META } from "../src/i18n/locales";
 
 const BASE_URL = "https://freevideo-3gk.pages.dev";
@@ -64,6 +65,17 @@ ${xDefault}
   }
 }
 
+// Blog posts (English only, no locale variants for now)
+for (const post of BLOG_POSTS) {
+  const loc = `${BASE_URL}/blog/${post.slug}`;
+  xmlEntries.push(`  <url>
+    <loc>${loc}</loc>
+    <lastmod>${post.updatedAt}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>`);
+}
+
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
 ${xmlEntries.join("\n")}
@@ -72,5 +84,5 @@ ${xmlEntries.join("\n")}
 
 writeFileSync("dist/sitemap.xml", xml, "utf-8");
 console.log(
-  `✅ sitemap.xml written with ${xmlEntries.length} URLs (${LOGICAL_URLS.length} pages × ${SUPPORTED_LOCALES.length} locales)`,
+  `✅ sitemap.xml written with ${xmlEntries.length} URLs (${LOGICAL_URLS.length} pages × ${SUPPORTED_LOCALES.length} locales + ${BLOG_POSTS.length} blog posts)`,
 );
