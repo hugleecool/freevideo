@@ -121,10 +121,9 @@ async function generate() {
     stageMsg.value = t("gen_connecting");
     await avatar.startConnection();
 
-    // If this is a subsequent generation, reset the SDK's previous-utterance
-    // state. After we sent end=true last time, the SDK won't accept new audio
-    // until interrupted.
-    avatar.interrupt();
+    // Per SDK docs: sending audio with isEnd=false after a previous
+    // isEnd=true automatically starts a fresh round and interrupts any
+    // ongoing playback. No explicit interrupt() needed between turns.
 
     stageMsg.value = t("gen_generating_speech");
     const pcmBuffer = await fetchTTS(text, selectedVoice.value);
