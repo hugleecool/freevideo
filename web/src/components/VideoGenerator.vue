@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useAvatar } from "@/composables/useAvatar";
 import { useRecorder } from "@/composables/useRecorder";
 import { getSessionToken, fetchTTS } from "@/lib/api";
-import { VOICES, AVATARS } from "@/lib/voices";
+import { VOICES, AVATARS, voicesForLang } from "@/lib/voices";
 import { useLocale } from "@/i18n/useLocale";
-import { LOCALE_DEFAULT_VOICE } from "@/i18n/locales";
+import { LOCALE_DEFAULT_VOICE, SUPPORTED_LOCALES, LOCALE_META } from "@/i18n/locales";
 
 interface Props {
   defaultText?: string;
@@ -23,13 +23,37 @@ const textInput = ref(props.defaultText);
 const selectedVoice = ref(
   props.defaultVoiceId || LOCALE_DEFAULT_VOICE[locale.value] || VOICES[0].id,
 );
+const userPickedVoice = ref(false); // flag: user manually changed voice
 const selectedAvatar = ref(AVATARS[0].id);
 const charCount = computed(() => textInput.value.length);
 const maxChars = 500;
 const showAllAvatars = ref(false);
+const showAllVoices = ref(false);
 const visibleAvatars = computed(() =>
   showAllAvatars.value ? AVATARS : AVATARS.slice(0, 8),
 );
+
+// Voices visible by default: only voices matching current locale.
+// "Show all" reveals voices from every language.
+const currentLangVoices = computed(() => voicesForLang(locale.value));
+const otherLangVoices = computed(() =>
+  VOICES.filter((v) => v.lang !== locale.value),
+);
+
+// Auto-switch voice when locale changes (unless user already picked one).
+watch(locale, (newLocale) => {
+  if (!userPickedVoice.value) {
+    const defaultId = LOCALE_DEFAULT_VOICE[newLocale];
+    if (defaultId) selectedVoice.value = defaultId;
+  }
+});
+
+function pickVoice(id: string) {
+  selectedVoice.value = id;
+  userPickedVoice.value = true;
+}
+
+const currentVoice = computed(() => VOICES.find((v) => v.id === selectedVoice.value));
 
 type Stage = "idle" | "loading" | "ready" | "tts" | "speaking" | "done" | "error";
 const stage = ref<Stage>("idle");
@@ -133,12 +157,30 @@ function reset() {
   errorMsg.value = "";
   resultBlob.value = null;
 }
+
+// Group "other voices" by language for the expanded section
+const otherLangGrouped = computed(() => {
+  const groups: Record<string, typeof VOICES> = {};
+  for (const v of otherLangVoices.value) {
+    if (!groups[v.lang]) groups[v.lang] = [];
+    groups[v.lang].push(v);
+  }
+  // Preserve SUPPORTED_LOCALES ordering
+  return SUPPORTED_LOCALES
+    .filter((l) => l !== locale.value && groups[l])
+    .map((l) => ({
+      lang: l,
+      label: LOCALE_META[l].nativeName,
+      voices: groups[l],
+    }));
+});
 </script>
 
 <template>
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
     <!-- Left: Input panel -->
     <div class="bg-white rounded-2xl shadow-lg p-6 space-y-5">
+      <!-- Text input -->
       <div>
         <textarea
           v-model="textInput"
@@ -154,39 +196,101 @@ function reset() {
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{{ t('gen_voice_label') }}</label>
-          <select v-model="selectedVoice" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option v-for="v in VOICES" :key="v.id" :value="v.id">{{ v.langLabel }} · {{ v.name }}</option>
-          </select>
+      <!-- Voice selector (grouped, locale-aware) -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-xs font-medium text-gray-500 uppercase tracking-wide">{{ t('gen_voice_label') }}</label>
+          <span v-if="currentVoice" class="text-xs text-gray-400">
+            {{ currentVoice.langLabel }} · {{ currentVoice.name }}
+          </span>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{{ t('gen_avatar_label') }} ({{ AVATARS.length }})</label>
-          <div class="flex gap-1.5 flex-wrap">
-            <button
-              v-for="a in visibleAvatars"
-              :key="a.id"
-              @click="switchAvatar(a.id)"
-              :class="['px-2.5 py-1 rounded-lg text-xs font-medium transition-all', selectedAvatar === a.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
-            >
-              {{ a.name }}
-            </button>
-            <button
-              v-if="!showAllAvatars"
-              @click="showAllAvatars = true"
-              class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-50 text-blue-600 hover:bg-blue-50 transition-all"
-            >
-              +{{ AVATARS.length - 8 }} more
-            </button>
-            <button
-              v-else
-              @click="showAllAvatars = false"
-              class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-50 text-gray-400 hover:bg-gray-100 transition-all"
-            >
-              Show less
-            </button>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button
+            v-for="v in currentLangVoices"
+            :key="v.id"
+            @click="pickVoice(v.id)"
+            :class="[
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all border',
+              selectedVoice === v.id
+                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-100',
+            ]"
+          >
+            <span :class="['text-base leading-none', selectedVoice === v.id ? 'opacity-100' : 'opacity-60']">
+              {{ v.gender === 'female' ? '♀' : '♂' }}
+            </span>
+            <span class="flex-1 min-w-0">
+              <span class="block text-sm font-medium truncate">{{ v.name }}</span>
+              <span :class="['block text-xs truncate', selectedVoice === v.id ? 'text-blue-100' : 'text-gray-400']">
+                {{ v.style }}
+              </span>
+            </span>
+          </button>
+        </div>
+
+        <button
+          @click="showAllVoices = !showAllVoices"
+          class="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium"
+        >
+          {{ showAllVoices ? '− Hide other languages' : `+ Voices in other languages (${otherLangVoices.length})` }}
+        </button>
+
+        <div v-if="showAllVoices" class="mt-3 space-y-3 max-h-64 overflow-y-auto pr-1">
+          <div v-for="group in otherLangGrouped" :key="group.lang">
+            <div class="text-xs font-semibold text-gray-400 mb-1.5">{{ group.label }}</div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button
+                v-for="v in group.voices"
+                :key="v.id"
+                @click="pickVoice(v.id)"
+                :class="[
+                  'flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all border',
+                  selectedVoice === v.id
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-100',
+                ]"
+              >
+                <span :class="['text-base leading-none', selectedVoice === v.id ? 'opacity-100' : 'opacity-60']">
+                  {{ v.gender === 'female' ? '♀' : '♂' }}
+                </span>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm font-medium truncate">{{ v.name }}</span>
+                  <span :class="['block text-xs truncate', selectedVoice === v.id ? 'text-blue-100' : 'text-gray-400']">
+                    {{ v.style }}
+                  </span>
+                </span>
+              </button>
+            </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Avatar selector -->
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{{ t('gen_avatar_label') }} ({{ AVATARS.length }})</label>
+        <div class="flex gap-1.5 flex-wrap">
+          <button
+            v-for="a in visibleAvatars"
+            :key="a.id"
+            @click="switchAvatar(a.id)"
+            :class="['px-2.5 py-1 rounded-lg text-xs font-medium transition-all', selectedAvatar === a.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
+          >
+            {{ a.name }}
+          </button>
+          <button
+            v-if="!showAllAvatars"
+            @click="showAllAvatars = true"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-50 text-blue-600 hover:bg-blue-50 transition-all"
+          >
+            +{{ AVATARS.length - 8 }} more
+          </button>
+          <button
+            v-else
+            @click="showAllAvatars = false"
+            class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-50 text-gray-400 hover:bg-gray-100 transition-all"
+          >
+            Show less
+          </button>
         </div>
       </div>
 
@@ -228,16 +332,6 @@ function reset() {
       <p v-if="stage === 'speaking' || stage === 'tts'" class="text-xs text-amber-600 text-center">
         {{ t('gen_no_close_hint') }}
       </p>
-
-      <div class="flex items-center justify-center gap-4 text-xs text-gray-400 pt-2 flex-wrap">
-        <span>No sign-up</span>
-        <span class="w-1 h-1 rounded-full bg-gray-300" />
-        <span>No limits</span>
-        <span class="w-1 h-1 rounded-full bg-gray-300" />
-        <span>74+ languages</span>
-        <span class="w-1 h-1 rounded-full bg-gray-300" />
-        <span>Forever free</span>
-      </div>
     </div>
 
     <!-- Right: Avatar preview -->

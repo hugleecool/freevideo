@@ -19,13 +19,13 @@ export const LOCALE_META: Record<Locale, { label: string; nativeName: string; ht
  * (Fish Audio S2-Pro auto-detects language from text anyway).
  */
 export const LOCALE_DEFAULT_VOICE: Record<Locale, string> = {
-  en: "b545c585f631496c914815291da4e893", // Friendly Women (en)
-  zh: "4f201abba2574feeae11e5ebf737859e", // 琨琨 (女声)
+  en: "b545c585f631496c914815291da4e893", // Friendly Women
+  zh: "4f201abba2574feeae11e5ebf737859e", // 王琨
   ja: "5161d41404314212af1254556477c17d", // 元気な女性
-  ko: "5c71ab35290241ed842d036e4bb0e5da", // 손정은
-  es: "b545c585f631496c914815291da4e893", // fallback to English voice
-  fr: "b545c585f631496c914815291da4e893",
-  de: "b545c585f631496c914815291da4e893",
+  ko: "9aae54921dd944948ee08d35f6b5f984", // 유라
+  es: "60a33602dacc4d899cb671b024e66d8c", // Sabio expandido
+  fr: "a288bdc744da4ad194921adad6863175", // Clémence
+  de: "88b18e0d81474a0ca08e2ea6f9df5ff4", // Christa
 };
 
 /** Build locale-prefixed URL path. English uses no prefix. */
