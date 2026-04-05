@@ -3,13 +3,16 @@
 </template>
 
 <script setup lang="ts">
-import { useHead } from "@unhead/vue/legacy";
+import { computed } from "vue";
+import { useHead } from "@unhead/vue";
+import { useLocale } from "@/i18n/useLocale";
+
+const { meta } = useLocale();
+const htmlLang = computed(() => meta.value.htmlLang);
 
 useHead({
-  htmlAttrs: { lang: "en" },
+  htmlAttrs: { lang: htmlLang },
   titleTemplate: "%s | FreeVideo",
-  link: [
-    { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
-  ],
+  link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
 });
 </script>

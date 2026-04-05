@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { useHead } from "@unhead/vue/legacy";
+import { useHead } from "@unhead/vue";
 import VideoGenerator from "@/components/VideoGenerator.vue";
 import SiteFooter from "@/components/SiteFooter.vue";
 import { COMPETITORS } from "@/data/competitors";

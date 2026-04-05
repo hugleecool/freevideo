@@ -4,6 +4,8 @@ import { useAvatar } from "@/composables/useAvatar";
 import { useRecorder } from "@/composables/useRecorder";
 import { getSessionToken, fetchTTS } from "@/lib/api";
 import { VOICES, AVATARS } from "@/lib/voices";
+import { useLocale } from "@/i18n/useLocale";
+import { LOCALE_DEFAULT_VOICE } from "@/i18n/locales";
 
 interface Props {
   defaultText?: string;
@@ -14,9 +16,13 @@ const props = withDefaults(defineProps<Props>(), {
   defaultVoiceId: "",
 });
 
+const { locale, t } = useLocale();
+
 const containerRef = ref<HTMLElement | null>(null);
 const textInput = ref(props.defaultText);
-const selectedVoice = ref(props.defaultVoiceId || VOICES[0].id);
+const selectedVoice = ref(
+  props.defaultVoiceId || LOCALE_DEFAULT_VOICE[locale.value] || VOICES[0].id,
+);
 const selectedAvatar = ref(AVATARS[0].id);
 const charCount = computed(() => textInput.value.length);
 const maxChars = 500;
@@ -87,16 +93,16 @@ async function generate() {
 
   try {
     stage.value = "tts";
-    stageMsg.value = "Connecting...";
+    stageMsg.value = t("gen_connecting");
     await avatar.startConnection();
 
-    stageMsg.value = "Generating speech...";
+    stageMsg.value = t("gen_generating_speech");
     const pcmBuffer = await fetchTTS(text, selectedVoice.value);
     const pcmData = new Int16Array(pcmBuffer);
     const durationSec = pcmData.length / 16000;
 
     stage.value = "speaking";
-    stageMsg.value = `Generating video (${durationSec.toFixed(0)}s)...`;
+    stageMsg.value = `${t("gen_speaking")} (${durationSec.toFixed(0)}s)`;
 
     const canvas = avatar.getCanvas();
     if (!canvas) throw new Error("Canvas not found");
@@ -138,25 +144,25 @@ function reset() {
           v-model="textInput"
           rows="4"
           :maxlength="maxChars"
-          placeholder="Type what you want the avatar to say..."
+          :placeholder="t('gen_text_placeholder')"
           class="w-full border border-gray-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-gray-50"
           :disabled="stage === 'tts' || stage === 'speaking'"
         />
         <div class="flex justify-between mt-1.5 text-xs text-gray-400 px-1">
-          <span>{{ charCount }}/{{ maxChars }}</span>
-          <span v-if="textInput.trim()">~{{ estimatedDuration }}s video</span>
+          <span>{{ t('gen_char_count', { count: charCount, max: maxChars }) }}</span>
+          <span v-if="textInput.trim()">{{ t('gen_estimated_duration', { secs: estimatedDuration }) }}</span>
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-4">
         <div>
-          <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Voice</label>
+          <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{{ t('gen_voice_label') }}</label>
           <select v-model="selectedVoice" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option v-for="v in VOICES" :key="v.id" :value="v.id">{{ v.langLabel }} · {{ v.name }}</option>
           </select>
         </div>
         <div>
-          <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Avatar ({{ AVATARS.length }})</label>
+          <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">{{ t('gen_avatar_label') }} ({{ AVATARS.length }})</label>
           <div class="flex gap-1.5 flex-wrap">
             <button
               v-for="a in visibleAvatars"
@@ -196,11 +202,11 @@ function reset() {
               : 'bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none',
         ]"
       >
-        <template v-if="stage === 'done'">Generate Another Video</template>
+        <template v-if="stage === 'done'">{{ t('gen_generate_another') }}</template>
         <template v-else-if="stage === 'tts' || stage === 'speaking'">
           <span class="inline-block animate-pulse">{{ stageMsg }}</span>
         </template>
-        <template v-else>Generate Free Video</template>
+        <template v-else>{{ t('gen_button') }}</template>
       </button>
 
       <button
@@ -211,16 +217,16 @@ function reset() {
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
-        Download Video ({{ (resultBlob.size / 1024).toFixed(0) }} KB)
+        {{ t('gen_download_video') }} ({{ (resultBlob.size / 1024).toFixed(0) }} KB)
       </button>
 
       <div v-if="errorMsg" class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">
         {{ errorMsg }}
-        <button @click="reset" class="ml-2 underline font-medium">Try again</button>
+        <button @click="reset" class="ml-2 underline font-medium">{{ t('gen_try_again') }}</button>
       </div>
 
       <p v-if="stage === 'speaking' || stage === 'tts'" class="text-xs text-amber-600 text-center">
-        Please don't close this page while generating.
+        {{ t('gen_no_close_hint') }}
       </p>
 
       <div class="flex items-center justify-center gap-4 text-xs text-gray-400 pt-2 flex-wrap">
