@@ -28,16 +28,34 @@ export function useRecorder() {
   }
 
   /**
-   * Compute a sensible video bitrate based on canvas resolution.
-   * Base: 6 Mbps at 720x720. Scales by sqrt(pixels) so 4x area doesn't 4x bitrate.
+   * Compute video bitrate for a target resolution.
+   * Base: 2.0 Mbps at 512x512, scales with sqrt(area) and caps at 4 Mbps.
+   * This matches the quality of the SDK's actual rendered content.
    */
   function bitrateFor(width: number, height: number): number {
-    const base = 6_000_000;
-    const baseArea = 720 * 720;
-    const area = Math.max(width * height, baseArea);
+    const base = 2_000_000;
+    const baseArea = 512 * 512;
+    const area = width * height;
     const scale = Math.sqrt(area / baseArea);
-    // Clamp so we don't explode on ultra-high-DPI canvases
-    return Math.round(Math.min(base * scale, 12_000_000));
+    return Math.round(Math.min(Math.max(base * scale, 1_000_000), 4_000_000));
+  }
+
+  /**
+   * Pick recording target size: match what the user sees on page (CSS size),
+   * capped at 720x720. The SDK canvas's actual buffer is usually 2x or more
+   * (Retina DPR), but the displayed content wasn't rendered to benefit from
+   * that resolution — exporting at buffer size produces an oversized,
+   * seemingly-blurry video. CSS size aligns with SDK's intended quality.
+   */
+  function targetSize(canvas: HTMLCanvasElement): { w: number; h: number } {
+    const cssW = canvas.offsetWidth || canvas.width;
+    const cssH = canvas.offsetHeight || canvas.height;
+    const MAX = 720;
+    const scale = Math.min(1, MAX / Math.max(cssW, cssH));
+    return {
+      w: Math.round(cssW * scale),
+      h: Math.round(cssH * scale),
+    };
   }
 
   /**
@@ -75,18 +93,39 @@ export function useRecorder() {
       );
     }
 
-    // 3. Capture canvas at its native refresh rate (default browser-chosen)
-    const videoStream = canvas.captureStream();
+    // 3. Set up downscale pipeline:
+    //    sdk canvas → <video> (via captureStream) → 2D canvas → MediaRecorder
+    //    This reliably works with WebGL canvases and lets us control output size.
+    const { w: outW, h: outH } = targetSize(canvas);
+    const srcStream = canvas.captureStream();
 
-    // 4. Log actual capture dimensions for diagnostics
-    const actualW = canvas.width;
-    const actualH = canvas.height;
-    const videoBitrate = bitrateFor(actualW, actualH);
+    const srcVideo = document.createElement("video");
+    srcVideo.srcObject = srcStream;
+    srcVideo.muted = true;
+    srcVideo.playsInline = true;
+    await srcVideo.play();
+
+    const outCanvas = document.createElement("canvas");
+    outCanvas.width = outW;
+    outCanvas.height = outH;
+    const ctx = outCanvas.getContext("2d", { alpha: false })!;
+
+    let rafId = 0;
+    const drawLoop = () => {
+      if (srcVideo.videoWidth > 0) {
+        ctx.drawImage(srcVideo, 0, 0, outW, outH);
+      }
+      rafId = requestAnimationFrame(drawLoop);
+    };
+    rafId = requestAnimationFrame(drawLoop);
+
+    const videoStream = outCanvas.captureStream();
+    const videoBitrate = bitrateFor(outW, outH);
     console.log(
-      `[recorder] canvas=${actualW}x${actualH} dpr=${window.devicePixelRatio} bitrate=${(videoBitrate / 1_000_000).toFixed(1)}Mbps`,
+      `[recorder] canvas buffer=${canvas.width}x${canvas.height} css=${canvas.offsetWidth}x${canvas.offsetHeight} → output=${outW}x${outH} bitrate=${(videoBitrate / 1_000_000).toFixed(1)}Mbps`,
     );
 
-    // 5. Combine and record
+    // 4. Combine and record
     const combined = new MediaStream([
       ...videoStream.getVideoTracks(),
       ...audioStream.getAudioTracks(),
@@ -96,7 +135,7 @@ export function useRecorder() {
     const recorder = new MediaRecorder(combined, {
       mimeType,
       videoBitsPerSecond: videoBitrate,
-      audioBitsPerSecond: 128_000,
+      audioBitsPerSecond: 96_000,
     });
 
     const chunks: Blob[] = [];
@@ -115,11 +154,14 @@ export function useRecorder() {
 
     recorder.start(100);
 
-    // 6. Stop after audio finishes + tail time for return-to-idle animation
+    // 5. Stop after audio finishes + tail time for return-to-idle animation
     const TAIL_IDLE_MS = 1200;
     setTimeout(() => {
       recorder.stop();
+      cancelAnimationFrame(rafId);
       videoStream.getTracks().forEach((t) => t.stop());
+      srcStream.getTracks().forEach((t) => t.stop());
+      srcVideo.srcObject = null;
     }, audioDurationMs + TAIL_IDLE_MS);
 
     return donePromise;
