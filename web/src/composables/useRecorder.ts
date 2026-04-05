@@ -50,11 +50,19 @@ export function useRecorder() {
     // --- 1. Pre-send audio to SDK for lip-sync priming ---
     let sdkOffset = 0;
     let sdkSendTimeMs = 0;
+    let sdkEndSent = false;
     while (sdkOffset < pcmBytes.length && sdkSendTimeMs < SDK_LEAD_MS) {
       const end = Math.min(sdkOffset + SDK_CHUNK_BYTES, pcmBytes.length);
       sendAudioToSDK(pcmBytes.slice(sdkOffset, end).buffer, false);
       sdkOffset = end;
       sdkSendTimeMs += SDK_CHUNK_INTERVAL_MS;
+    }
+    // If the pre-send already drained the whole buffer (short audio case),
+    // send the end-of-stream signal now. Otherwise the SDK waits forever
+    // for more audio and the avatar's mouth freezes mid-sentence.
+    if (sdkOffset >= pcmBytes.length) {
+      sendAudioToSDK(new ArrayBuffer(0), true);
+      sdkEndSent = true;
     }
     // Wait for SDK to process pre-sent audio
     await new Promise((r) => setTimeout(r, SDK_LEAD_MS));
@@ -125,8 +133,9 @@ export function useRecorder() {
         sendAudioToSDK(pcmBytes.slice(sdkOffset, end).buffer, false);
         sdkOffset = end;
         sdkSendTimeMs += SDK_CHUNK_INTERVAL_MS;
-        if (isLast) {
+        if (isLast && !sdkEndSent) {
           sendAudioToSDK(new ArrayBuffer(0), true);
+          sdkEndSent = true;
         }
       }
     }, SDK_CHUNK_INTERVAL_MS);
