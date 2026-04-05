@@ -66,11 +66,11 @@ export function defaultVoiceForLang(lang: string): Voice | undefined {
 
 // All 28 public avatars from SpatialReal
 export const AVATARS = [
+  { id: "699604d6-6857-4f25-8308-a96e9f6a1fb7", name: "Yuna" },
   { id: "8e39ba82-f209-4299-ba5f-8a3df9f66f21", name: "Noah" },
   { id: "ca9c5c22-6dba-4b59-ae3b-d26066f8c017", name: "Mia" },
   { id: "92dd6b16-3aec-45b7-99d2-67307c0bfc42", name: "Emma" },
   { id: "d29fdd29-a917-4ec1-b4a3-fb5a0051fd48", name: "Ryan" },
-  { id: "699604d6-6857-4f25-8308-a96e9f6a1fb7", name: "Yuna" },
   { id: "93cc8c1e-da7b-4b78-9fc5-7dd4057775f3", name: "Kenji" },
   { id: "067bf019-4234-479d-9b6a-2021e462bcc2", name: "Little Tommy" },
   { id: "1843ff9f-db3a-45de-be28-9c2b9d6412a3", name: "Nathan" },
