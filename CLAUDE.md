@@ -36,6 +36,7 @@ web/
       Home.vue                # Landing + tool (per-locale HTML pre-rendered)
       UseCase.vue             # /use-cases/:slug (6 scenarios)
       Compare.vue             # /compare/:slug (3 competitors)
+      BlogPost.vue            # /blog/:slug (pillar articles)
     components/
       VideoGenerator.vue      # Main tool: text + voice + avatar → MP4/WebM
       SiteFooter.vue          # Shared footer with contact + links
@@ -46,9 +47,11 @@ web/
       api.ts                  # /api/* client (session-token, tts)
       audio-tap.ts            # Taps SDK's AudioContext for recording
       voices.ts               # 21 Fish Audio voices (7 langs × 2-3 each)
+      seo-config.ts           # GSC/Bing verification tokens + CF Analytics beacon
     data/
       use-cases.ts            # 6 use-case page content (marketing/training/etc)
       competitors.ts          # 3 competitor comparison content
+      blog-posts.ts           # Blog pillar articles (3800-word guide + future posts)
     i18n/
       locales.ts              # 7 supported locales, default voice per locale
       messages.ts             # UI translations
@@ -56,8 +59,10 @@ web/
   public/
     robots.txt                # Allows AI crawlers (GPTBot, ClaudeBot, etc.)
     llms.txt                  # AI search engine metadata
+    googlea67164b981bad9a5.html # Google Search Console verification
+    BingSiteAuth.xml          # Bing Webmaster verification
   scripts/
-    generate-sitemap.ts       # Build-time sitemap generation
+    generate-sitemap.ts       # Build-time sitemap generation (71 URLs)
 
 api/
   src/
@@ -83,18 +88,39 @@ api/
 - Vue SFCs: `<script setup lang="ts">` only
 - NO `.js` files in `web/src/` — `vue-tsc -b` is forbidden (it generates stale .js that shadows .ts and breaks Vite resolution). Use `vue-tsc --noEmit` for type checking.
 
-## SEO Strategy (in-flight)
+## SEO Strategy (live)
 
-10 indexable pages deployed:
+**71 URLs in sitemap** = 10 logical pages × 7 locales + 1 blog post:
 - 1 home (Forever Free AI Talking Avatar Video Generator)
 - 6 use cases (`/use-cases/*`): marketing, training, product-demo, education, social-media, ecommerce
 - 3 competitor comparisons (`/compare/*`): HeyGen, Synthesia, D-ID
+- 1 blog pillar article (`/blog/ai-avatar-video-guide`, 3800 words, 10 sections, Article+FAQPage+BreadcrumbList schema)
 
 All pages have: unique H1/meta/description, FAQPage+HowTo+BreadcrumbList schema, canonical URLs, embedded VideoGenerator so visitors can use the tool on any page.
+
+**Submitted to:**
+- Google Search Console (verified via HTML file, sitemap submitted 2026-04-05)
+- Bing Webmaster Tools (verified via BingSiteAuth.xml)
 
 Target keywords: "free ai avatar video generator", "heygen alternative", "free talking avatar no watermark".
 
 Strategy doc: Feishu wiki "FreeVideo SEO与海外工具站策略" (wiki/DHLRwZFQWi4b7qkNweMcepJUnYe)
+
+## Pending TODOs
+
+**High priority (cost protection):**
+- Turnstile CAPTCHA on /api/tts endpoint
+- Workers rate limiting (2/min + 20/day per IP)
+
+**Medium priority (brand/viral):**
+- Video watermark "Made with FreeVideo" overlay
+- og:image social share graphics
+- Product Hunt launch prep
+
+**Ongoing (content + distribution):**
+- Blog sub-articles (5 more, cluster around pillar)
+- Tool directory submissions (AlternativeTo, FutureTools, ToolPilot)
+- Custom domain binding (candidates: freetalker.ai, freeavatar.video, chattava.com)
 
 ## Configured Secrets (Cloudflare Worker)
 
