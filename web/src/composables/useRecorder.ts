@@ -64,20 +64,25 @@ export function useRecorder() {
    * Record avatar video with audio.
    *
    * Pipeline:
-   *   sdkCanvas (WebGL)
-   *     ↓ drawImage in rAF (white fill + direct blit) ← no <video> intermediate
-   *   compositing 2D canvas
+   *   sdkCanvas (WebGL, alpha channel)
+   *     ↓ captureStream()
+   *   <video> element              ← preserves alpha via MediaStream presentation
+   *     ↓ drawImage(video) in rAF
+   *   compositing 2D canvas (white-fill each frame)
    *     ↓ captureStream(30)
    *   MediaRecorder ← audio tap stream
    *
-   * Key design notes:
-   * - The `<video>` intermediate used previously added ~30-100ms of
-   *   presentation lag versus the audio tap, causing audio to lead video
-   *   in the exported file. Direct drawImage eliminates that gap.
-   * - SDK canvas has an alpha channel; MP4 encoders flatten alpha to black
-   *   unless we composite over white ourselves each frame.
-   * - Audio comes from the global AudioContext tap (installed at SDK init),
-   *   which mirrors SDK's outbound audio into a MediaStream.
+   * Why the `<video>` intermediate: drawImage directly from a WebGL canvas
+   * with `preserveDrawingBuffer: false` (which the SDK uses) returns the
+   * cleared framebuffer outside the SDK's own rAF tick — we get black
+   * pixels that paint over our white fill. `<video>` bound to a
+   * MediaStream from captureStream correctly delivers presented frames
+   * with alpha preserved, so drawImage(video) composites properly onto
+   * white.
+   *
+   * Known tradeoff: the `<video>` element's presentation pipeline adds
+   * some lag vs. the direct audio tap, which can show up as a small A/V
+   * offset in the exported file. Addressed separately.
    */
   async function startRecording(
     canvas: HTMLCanvasElement,
@@ -98,8 +103,15 @@ export function useRecorder() {
       );
     }
 
-    // Compositing canvas: white background + SDK canvas blit each frame.
     const { w: outW, h: outH } = targetSize(canvas);
+    const srcStream = canvas.captureStream();
+
+    const srcVideo = document.createElement("video");
+    srcVideo.srcObject = srcStream;
+    srcVideo.muted = true;
+    srcVideo.playsInline = true;
+    await srcVideo.play();
+
     const outCanvas = document.createElement("canvas");
     outCanvas.width = outW;
     outCanvas.height = outH;
@@ -111,10 +123,9 @@ export function useRecorder() {
     const drawLoop = () => {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, outW, outH);
-      // drawImage directly from the SDK's WebGL canvas. The SDK renders
-      // continuously while active; our rAF callback runs in the same frame
-      // window as its latest render, so the pixels are fresh.
-      ctx.drawImage(canvas, 0, 0, outW, outH);
+      if (srcVideo.videoWidth > 0) {
+        ctx.drawImage(srcVideo, 0, 0, outW, outH);
+      }
       rafId = requestAnimationFrame(drawLoop);
     };
     rafId = requestAnimationFrame(drawLoop);
@@ -153,13 +164,13 @@ export function useRecorder() {
 
     recorder.start(100);
 
-    // Tail time for return-to-idle animation. Shorter than before since
-    // we no longer pay for <video> element startup lag.
-    const TAIL_IDLE_MS = 800;
+    const TAIL_IDLE_MS = 1000;
     setTimeout(() => {
       recorder.stop();
       cancelAnimationFrame(rafId);
       videoStream.getTracks().forEach((t) => t.stop());
+      srcStream.getTracks().forEach((t) => t.stop());
+      srcVideo.srcObject = null;
     }, audioDurationMs + TAIL_IDLE_MS);
 
     return donePromise;
