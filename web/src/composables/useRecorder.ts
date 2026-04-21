@@ -112,6 +112,11 @@ export function useRecorder() {
 
     let rafId = 0;
     const drawLoop = () => {
+      // SDK canvas has an alpha channel (transparent around the avatar).
+      // Fill white each frame so transparent pixels composite to pure white
+      // instead of the alpha:false default (black).
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, outW, outH);
       if (srcVideo.videoWidth > 0) {
         ctx.drawImage(srcVideo, 0, 0, outW, outH);
       }
