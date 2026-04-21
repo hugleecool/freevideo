@@ -11,11 +11,14 @@ export function useRecorder() {
 
   /**
    * Pick the best supported output format for MediaRecorder.
-   * MP4 first (better compatibility), fall back to WebM.
+   * Prefer higher-profile H.264 (better detail at same bitrate),
+   * then WebM fallbacks.
    */
   function pickMimeType(): string {
     const candidates = [
-      "video/mp4;codecs=avc1.42E01F,mp4a.40.2", // H.264 baseline + AAC
+      "video/mp4;codecs=avc1.64001F,mp4a.40.2", // H.264 High 3.1 + AAC LC
+      "video/mp4;codecs=avc1.4D401F,mp4a.40.2", // H.264 Main 3.1 + AAC LC
+      "video/mp4;codecs=avc1.42E01F,mp4a.40.2", // H.264 Baseline 3.1 + AAC LC
       "video/mp4;codecs=avc1,mp4a",
       "video/webm;codecs=vp9,opus",
       "video/webm;codecs=vp8,opus",
@@ -28,51 +31,53 @@ export function useRecorder() {
   }
 
   /**
-   * Compute video bitrate for a target resolution.
-   * Base: 2.0 Mbps at 512x512, scales with sqrt(area) and caps at 4 Mbps.
-   * This matches the quality of the SDK's actual rendered content.
+   * Bitrate for a given resolution. Talking-head footage is sparse in
+   * motion but detail-sensitive around the mouth/eyes, so we aim a bit
+   * higher than "generic" bitrate ladders.
+   * Base: 3 Mbps at 512x512, sqrt-scaled, cap 8 Mbps.
    */
   function bitrateFor(width: number, height: number): number {
-    const base = 2_000_000;
+    const base = 3_000_000;
     const baseArea = 512 * 512;
     const area = width * height;
     const scale = Math.sqrt(area / baseArea);
-    return Math.round(Math.min(Math.max(base * scale, 1_000_000), 4_000_000));
+    return Math.round(Math.min(Math.max(base * scale, 1_500_000), 8_000_000));
   }
 
   /**
-   * Pick recording target size: match what the user sees on page (CSS size),
-   * capped at 720x720. The SDK canvas's actual buffer is usually 2x or more
-   * (Retina DPR), but the displayed content wasn't rendered to benefit from
-   * that resolution — exporting at buffer size produces an oversized,
-   * seemingly-blurry video. CSS size aligns with SDK's intended quality.
+   * Pick recording target size. Use the SDK canvas's backing buffer size
+   * (what it actually rendered into) capped at 1080. Falling back to CSS
+   * size if buffer attributes are missing.
    */
   function targetSize(canvas: HTMLCanvasElement): { w: number; h: number } {
-    const cssW = canvas.offsetWidth || canvas.width;
-    const cssH = canvas.offsetHeight || canvas.height;
-    const MAX = 720;
-    const scale = Math.min(1, MAX / Math.max(cssW, cssH));
+    const bufW = canvas.width || canvas.offsetWidth || 512;
+    const bufH = canvas.height || canvas.offsetHeight || 512;
+    const MAX = 1080;
+    const scale = Math.min(1, MAX / Math.max(bufW, bufH));
     return {
-      w: Math.round(cssW * scale),
-      h: Math.round(cssH * scale),
+      w: Math.round(bufW * scale),
+      h: Math.round(bufH * scale),
     };
   }
 
   /**
    * Record avatar video with audio.
    *
-   * Strategy:
-   * 1. Caller pushes the TTS PCM chunks to the SDK (which plays them
-   *    through its AudioContext — already tapped via installAudioTap()).
-   * 2. We capture the canvas + the SDK's tapped audio stream into a
-   *    single MediaRecorder. Both are driven by the SDK's own clock,
-   *    so A/V sync is guaranteed by construction.
-   * 3. Start recorder as soon as the SDK enters "playing" state (first
-   *    frame of animation is rendered).
+   * Pipeline:
+   *   sdkCanvas (WebGL)
+   *     ↓ drawImage in rAF (white fill + direct blit) ← no <video> intermediate
+   *   compositing 2D canvas
+   *     ↓ captureStream(30)
+   *   MediaRecorder ← audio tap stream
    *
-   * @param canvas        SDK-rendered canvas
-   * @param audioDurationMs   expected audio duration (used for auto-stop timer)
-   * @param waitForPlaying    awaits SDK's conversationState === "playing"
+   * Key design notes:
+   * - The `<video>` intermediate used previously added ~30-100ms of
+   *   presentation lag versus the audio tap, causing audio to lead video
+   *   in the exported file. Direct drawImage eliminates that gap.
+   * - SDK canvas has an alpha channel; MP4 encoders flatten alpha to black
+   *   unless we composite over white ourselves each frame.
+   * - Audio comes from the global AudioContext tap (installed at SDK init),
+   *   which mirrors SDK's outbound audio into a MediaStream.
    */
   async function startRecording(
     canvas: HTMLCanvasElement,
@@ -82,10 +87,10 @@ export function useRecorder() {
     recording.value = true;
     phase.value = "recording";
 
-    // 1. Wait until SDK actually starts playing (lip-sync animation + audio)
+    // Wait for SDK to enter "playing" — by that point the AudioContext
+    // has connected to destination, so the tap stream has live audio.
     await waitForPlaying();
 
-    // 2. Pick up the SDK's audio stream from the tap (installed at SDK init)
     const audioStream = getFirstTapStream();
     if (!audioStream) {
       throw new Error(
@@ -93,44 +98,33 @@ export function useRecorder() {
       );
     }
 
-    // 3. Set up downscale pipeline:
-    //    sdk canvas → <video> (via captureStream) → 2D canvas → MediaRecorder
-    //    This reliably works with WebGL canvases and lets us control output size.
+    // Compositing canvas: white background + SDK canvas blit each frame.
     const { w: outW, h: outH } = targetSize(canvas);
-    const srcStream = canvas.captureStream();
-
-    const srcVideo = document.createElement("video");
-    srcVideo.srcObject = srcStream;
-    srcVideo.muted = true;
-    srcVideo.playsInline = true;
-    await srcVideo.play();
-
     const outCanvas = document.createElement("canvas");
     outCanvas.width = outW;
     outCanvas.height = outH;
     const ctx = outCanvas.getContext("2d", { alpha: false })!;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
 
     let rafId = 0;
     const drawLoop = () => {
-      // SDK canvas has an alpha channel (transparent around the avatar).
-      // Fill white each frame so transparent pixels composite to pure white
-      // instead of the alpha:false default (black).
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, outW, outH);
-      if (srcVideo.videoWidth > 0) {
-        ctx.drawImage(srcVideo, 0, 0, outW, outH);
-      }
+      // drawImage directly from the SDK's WebGL canvas. The SDK renders
+      // continuously while active; our rAF callback runs in the same frame
+      // window as its latest render, so the pixels are fresh.
+      ctx.drawImage(canvas, 0, 0, outW, outH);
       rafId = requestAnimationFrame(drawLoop);
     };
     rafId = requestAnimationFrame(drawLoop);
 
-    const videoStream = outCanvas.captureStream();
+    const videoStream = outCanvas.captureStream(30);
     const videoBitrate = bitrateFor(outW, outH);
     console.log(
       `[recorder] canvas buffer=${canvas.width}x${canvas.height} css=${canvas.offsetWidth}x${canvas.offsetHeight} → output=${outW}x${outH} bitrate=${(videoBitrate / 1_000_000).toFixed(1)}Mbps`,
     );
 
-    // 4. Combine and record
     const combined = new MediaStream([
       ...videoStream.getVideoTracks(),
       ...audioStream.getAudioTracks(),
@@ -140,7 +134,7 @@ export function useRecorder() {
     const recorder = new MediaRecorder(combined, {
       mimeType,
       videoBitsPerSecond: videoBitrate,
-      audioBitsPerSecond: 96_000,
+      audioBitsPerSecond: 128_000,
     });
 
     const chunks: Blob[] = [];
@@ -159,14 +153,13 @@ export function useRecorder() {
 
     recorder.start(100);
 
-    // 5. Stop after audio finishes + tail time for return-to-idle animation
-    const TAIL_IDLE_MS = 1200;
+    // Tail time for return-to-idle animation. Shorter than before since
+    // we no longer pay for <video> element startup lag.
+    const TAIL_IDLE_MS = 800;
     setTimeout(() => {
       recorder.stop();
       cancelAnimationFrame(rafId);
       videoStream.getTracks().forEach((t) => t.stop());
-      srcStream.getTracks().forEach((t) => t.stop());
-      srcVideo.srcObject = null;
     }, audioDurationMs + TAIL_IDLE_MS);
 
     return donePromise;
